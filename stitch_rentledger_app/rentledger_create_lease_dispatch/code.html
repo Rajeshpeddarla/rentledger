@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_stack" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface-tint": "#006c4a", "on-tertiary-fixed-variant": "#653e00", "on-background": "#0b1c30", "error": "#ba1a1a", "tertiary-container": "#a36700", "surface-container": "#e5eeff", "on-tertiary-fixed": "#2a1700", "outline-variant": "#bccac0", "surface-container-highest": "#d3e4fe", "on-primary": "#ffffff", "error-container": "#ffdad6", "secondary-fixed": "#dae2fd", "surface-bright": "#f8f9ff", "outline": "#6d7a72", "surface": "#f8f9ff", "surface-container-low": "#eff4ff", "surface-container-lowest": "#ffffff", "on-secondary-container": "#5c647a", "on-error-container": "#93000a", "primary-fixed": "#85f8c4", "tertiary": "#825100", "inverse-on-surface": "#eaf1ff", "surface-dim": "#cbdbf5", "on-secondary": "#ffffff", "primary-fixed-dim": "#68dba9", "tertiary-fixed": "#ffddb8", "on-primary-container": "#f5fff7", "inverse-primary": "#68dba9", "on-primary-fixed-variant": "#005137", "primary": "#006948", "on-error": "#ffffff", "surface-variant": "#d3e4fe", "tertiary-fixed-dim": "#ffb95f", "on-primary-fixed": "#002114", "inverse-surface": "#213145", "secondary": "#565e74", "on-surface": "#0b1c30", "background": "#f8f9ff", "primary-container": "#00855d", "secondary-fixed-dim": "#bec6e0", "on-tertiary": "#ffffff", "surface-container-high": "#dce9ff", "on-secondary-fixed-variant": "#3f465c", "on-surface-variant": "#3d4a42", "secondary-container": "#dae2fd", "on-tertiary-container": "#fffbff", "on-secondary-fixed": "#131b2e" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "margin": "1rem", "space-sm": "0.5rem", "space-md": "1rem", "space-xs": "0.25rem", "space-lg": "1.5rem", "space-xl": "2rem", "gutter": "1rem" }, "fontFamily": { "headline-xl-mobile": ["Plus Jakarta Sans"], "body-lg": ["Plus Jakarta Sans"], "label-lg": ["Plus Jakarta Sans"], "data-metric": ["Plus Jakarta Sans"], "headline-md": ["Plus Jakarta Sans"], "headline-xl": ["Plus Jakarta Sans"], "label-sm": ["Plus Jakarta Sans"], "body-md": ["Plus Jakarta Sans"], "body-sm": ["Plus Jakarta Sans"], "label-md": ["Plus Jakarta Sans"], "headline-lg": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"] }, "fontSize": { "headline-xl-mobile": ["28px", { "lineHeight": "34px", "letterSpacing": "-0.025em", "fontWeight": "800" }], "body-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "label-lg": ["14px", { "lineHeight": "18px", "letterSpacing": "0.01em", "fontWeight": "600" }], "data-metric": ["22px", { "lineHeight": "26px", "letterSpacing": "-0.02em", "fontWeight": "800" }], "headline-md": ["20px", { "lineHeight": "26px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800" }], "label-sm": ["10px", { "lineHeight": "12px", "letterSpacing": "0.04em", "fontWeight": "700" }], "body-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "400" }], "body-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.005em", "fontWeight": "400" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-sm": ["16px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "600" }] } } } };</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-sm min-w-0 flex-1"><button aria-label="Go back" class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container-high transition-colors flex-shrink-0" onclick="history.back()"><span class="material-symbols-outlined text-[24px]">arrow_back</span></button><img alt="RentLedger App Icon" class="h-8 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/AEtjO1UI4m8hayLhwz68ZWQIyl6VF-lP_ka0iPWel1b1uod0cNXAf4lHFPTJ-VhyUUtrZYH4txhBeEjvhXzsM5jqrW5xDaxdJOKC4nGZwHA4kLvK5ScIQbO_-aT5tlnBY3VsiR23YU62rMzKNcjKycciqGzXd2-kdm1ZvQfUbdUYRvLWn0mVnj7f7joEbUOh6zELWfBwjSTbLEkMVIBD41mJCBjBSo5MtdMY_bac3weu0OO6"/><h1 class="font-headline-sm text-headline-sm text-on-surface truncate">New Rental Dispatch</h1></div><div class="flex items-center gap-space-xs flex-shrink-0"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAWQHqTcuyv_S2qhudUzZVC-LwXbTDbxTv8-q_1yGXsDTuiW6AUJgyNEPgSNj9eZ-Jomo1h0ABaLPfTb_xE25xrDC8_FhRzX3Mg6tjGGleqrKaUCcWOWbS49MlXsM9s8QcbNdGvQcHiGbxIgXpO1O50nc6IWk5MLgCzSQaeO86iZs6WNAcOmYQ0HkjRu6x4aI8sxNNQ-Z5EBwqUDObk99DFT4oqlmtFoN4xpRd8s2w"/></div></div></header><main class="flex-1 flex flex-col relative w-full pt-16 pb-safe bg-surface"><div class="flex flex-col w-full pb-10">
+<!-- Top Progress Bar & Workflow Header -->
+<div class="px-margin pt-4 pb-2 bg-surface-container-low flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-primary font-bold tracking-wide uppercase">Step 2 of 3</span>
+<span class="font-label-sm text-label-sm text-secondary">Pricing, Deposit & Handover</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1.5 rounded-full overflow-hidden flex">
+<div class="bg-primary h-full rounded-full transition-all duration-500 ease-out" style="width: 66.6%;"></div>
+</div>
+<div class="flex items-center justify-between mt-1">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[18px] text-primary" style="font-variation-settings: 'FILL' 1;">assignment_turned_in</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Dispatch & Create Lease</h2>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-label-sm font-label-sm bg-primary-fixed text-on-primary-fixed font-bold">
+        Live Ledger
+      </span>
+</div>
+</div>
+<div class="px-margin flex flex-col gap-space-md mt-4">
+<!-- 1. Selected Asset Summary Tile -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm relative overflow-hidden">
+<div class="flex items-start gap-space-md">
+<div class="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container">
+<img class="w-full h-full object-cover" data-alt="High quality close up of orange and light gray Stihl MS 250 chainsaw on clean industrial testing workbench with sharp blade and pristine casing in bright warehouse workshop lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAa5CEgE01XaW-UBGqNWnlh6o4cO5Q4sVTQDI4a3yD630nnSibv96oUJElFBYasMTnPmIMidgg-ntG4XWImWP6wKKYD5MxXuM1fMdff4eC-UwH0wgSsCoMn5cHhD1nqd0fHJvLgAKzJvWO4aOiWmfpVxidWJIzLGQGL3XBUQqV-6VQlqGqEDFWER2E17SgzvTEtL6oCco-qYIMQsIBL09x-kmHfxBUxpilNg0nxvfo"/>
+<span class="absolute bottom-1 left-1 bg-on-background/80 text-surface text-[10px] font-bold px-1.5 py-0.5 rounded backdrop-blur-sm">
+            #STL-9941
+          </span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1">
+<span class="font-label-sm text-label-sm text-primary uppercase font-bold tracking-wider">Heavy Machinery</span>
+<span class="inline-flex items-center gap-1 font-label-sm text-label-sm px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+              2/3 In Depot
+            </span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface truncate mt-0.5">Stihl MS 250 Chainsaw</h3>
+<p class="font-body-sm text-body-sm text-secondary truncate">Gasoline 45.4cc • 18-inch Bar</p>
+<div class="flex items-center gap-2 mt-1.5">
+<span class="font-label-md text-label-md text-on-surface font-bold">₹800<span class="font-body-sm text-body-sm text-secondary font-normal"> / day</span></span>
+<span class="text-outline-variant">•</span>
+<span class="font-label-sm text-label-sm text-secondary">Base Dep: ₹3,000</span>
+</div>
+</div>
+</div>
+</div>
+<!-- 2. Rental Timeline & Real-Time Conflict Validator -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary">calendar_month</span>
+<h4 class="font-label-lg text-label-lg text-on-surface font-bold">Lease Schedule & Dates</h4>
+</div>
+<span class="font-label-sm text-label-sm bg-surface-container px-2 py-0.5 rounded-md text-on-surface-variant font-medium">
+          1 Day, 8.5 Hours
+        </span>
+</div>
+<div class="grid grid-cols-2 gap-space-sm">
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col">
+<span class="font-label-sm text-label-sm text-secondary uppercase font-semibold">Start & Handover</span>
+<span class="font-headline-sm text-headline-sm text-on-surface mt-0.5">Today, Oct 24</span>
+<div class="flex items-center gap-1 text-primary mt-1 font-label-md text-label-md font-bold">
+<span class="material-symbols-outlined text-[16px]">schedule</span>
+<span>09:30 AM</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col">
+<span class="font-label-sm text-label-sm text-secondary uppercase font-semibold">Expected Return</span>
+<span class="font-headline-sm text-headline-sm text-on-surface mt-0.5">Tomorrow, Oct 25</span>
+<div class="flex items-center gap-1 text-tertiary mt-1 font-label-md text-label-md font-bold">
+<span class="material-symbols-outlined text-[16px]">event_repeat</span>
+<span>06:00 PM</span>
+</div>
+</div>
+</div>
+<!-- Live Conflict Checker -->
+<div class="bg-surface-container-low px-space-sm py-2 rounded-lg flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary flex-shrink-0" style="font-variation-settings: 'FILL' 1;">verified</span>
+<div class="min-w-0 flex-1">
+<p class="font-label-sm text-label-sm text-primary font-bold">Inventory Verified: Zero Booking Conflict</p>
+<p class="font-body-sm text-body-sm text-secondary text-[11px] leading-tight truncate">2 identical units available throughout Oct 24 - 25 window.</p>
+</div>
+</div>
+</div>
+<!-- 3. Customer Profile & Aadhaar Compliance -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-secondary">person_pin</span>
+<h4 class="font-label-lg text-label-lg text-on-surface font-bold">Client Verification</h4>
+</div>
+<button class="text-primary font-label-sm text-label-sm font-bold flex items-center gap-0.5" type="button">
+<span>Change</span>
+<span class="material-symbols-outlined text-[14px]">swap_horiz</span>
+</button>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded-lg flex items-center gap-space-sm">
+<div class="w-12 h-12 rounded-full overflow-hidden bg-surface-container-high flex-shrink-0">
+<img class="w-full h-full object-cover" data-alt="Portrait photo of Rahul Verma smiling professional Indian contractor male in late 30s wearing a blue collared shirt with warm ambient lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsZUvbxD7kR4cXUkhtqMayhb1zZ_5zAWIXK2BHxRip2Dx7YnYDRnhfVhUxG-C4McICrNyFQuzSQFMAPk3hwaKOhMbKlpNhW7fEmd74FluPP6eEFKvsEWR4UpsQGXy1B1x_gQhVpvPYciS4slmZb4RhBhxN9tQIYn4xJxZ8cwV-hiyu2hul-cq6VMXN1swyQV8SKxWY6-KGaWup85fZemf2gwQSes3PnM-ncWVq7NU"/>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5 flex-wrap">
+<h5 class="font-label-lg text-label-lg text-on-surface font-bold truncate">Rahul Verma</h5>
+<span class="inline-flex items-center gap-0.5 bg-primary-fixed text-on-primary-fixed px-1.5 py-0.5 rounded text-[10px] font-bold">
+<span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">shield_with_heart</span>
+              Repeat Client
+            </span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary truncate">+91 98450-23910 • Bangalore Urban</p>
+</div>
+</div>
+<!-- Trust Ledger Pills -->
+<div class="grid grid-cols-2 gap-space-sm pt-1">
+<div class="flex items-center gap-2 bg-surface-container-lowest p-2 rounded-lg shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-primary" style="font-variation-settings: 'FILL' 1;">task_alt</span>
+<div class="min-w-0">
+<p class="font-label-sm text-label-sm text-on-surface font-bold">5 Prior Leases</p>
+<p class="font-body-sm text-body-sm text-secondary text-[11px]">100% on-time return</p>
+</div>
+</div>
+<div class="flex items-center gap-2 bg-surface-container-lowest p-2 rounded-lg shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-surface-tint" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+<div class="min-w-0">
+<p class="font-label-sm text-label-sm text-on-surface font-bold">Aadhaar Verified</p>
+<p class="font-body-sm text-body-sm text-secondary text-[11px]">Govt KYC Linked</p>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Condition Proof ('Before' Intake Photos) -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-secondary">camera_indoor</span>
+<h4 class="font-label-lg text-label-lg text-on-surface font-bold">Handover Condition Audit</h4>
+</div>
+<span class="font-label-sm text-label-sm text-primary font-bold">3/3 Uploaded</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Pre-dispatch visual timestamp for damage claim protection.</p>
+<div class="grid grid-cols-3 gap-space-sm pt-1">
+<!-- Photo 1 -->
+<div class="flex flex-col gap-1">
+<div class="relative aspect-square rounded-lg overflow-hidden bg-surface-container group">
+<img class="w-full h-full object-cover" data-alt="Macro clear photograph of pristine sharp steel teeth of a Stihl chainsaw front cutting bar with zero rust or debris under natural workshop light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuABs23u7ZHKq2bv10HCo-DWD2RFi-hlMpCgeAqsVClH8Mx2D43k8t_woR5TW0swQ8JMn134YgggHvgn2G0gRYeVDo18Oib-BFfWO5aSeZznBZKRxybryMhPR1m6W7MPfwA0UGuUSnGX19L-GKb-pHokgNCO3OpAYtXuHPcN5xZZ0YdoySJEV0vQYMTbZj5xSlzaQWf4WKJ-ghKgoQiKOA-f346alGKZ34emkihs-Q4"/>
+<span class="absolute top-1 right-1 bg-surface-tint text-on-primary rounded-full p-0.5 flex items-center justify-center">
+<span class="material-symbols-outlined text-[12px]">check</span>
+</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface font-medium truncate">Front Blade</span>
+<span class="font-body-sm text-body-sm text-secondary text-[10px]">WebP • 94 KB</span>
+</div>
+<!-- Photo 2 -->
+<div class="flex flex-col gap-1">
+<div class="relative aspect-square rounded-lg overflow-hidden bg-surface-container group">
+<img class="w-full h-full object-cover" data-alt="Clean macro shot of chainsaw engine chassis showing engraved metal serial number STL-9941 clearly stamped on silver metallic casing" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBV7dcrRvIhUlOR9DoS6ti4p3Ik1xv19Mc59ZTrC9EwWOrkp8EQLDARGkJai1xnVLVFM5QwyHvHQamTs4UYY3ATiSD3_36xR-CwfZsYDUKSZyQPHk7wbz8gXtuiAY1eZa8ughn3TRc1vZVJ6PFxix9DhhGYLT_nl74L0IPKfunYGjxAXA3B5eHQC0suafU9236P25fhCOhudiUl6cORHMvBNo1Y248MNUslxWjU8uU"/>
+<span class="absolute top-1 right-1 bg-surface-tint text-on-primary rounded-full p-0.5 flex items-center justify-center">
+<span class="material-symbols-outlined text-[12px]">check</span>
+</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface font-medium truncate">Motor Serial</span>
+<span class="font-body-sm text-body-sm text-secondary text-[10px]">WebP • 88 KB</span>
+</div>
+<!-- Photo 3 -->
+<div class="flex flex-col gap-1">
+<div class="relative aspect-square rounded-lg overflow-hidden bg-surface-container group">
+<img class="w-full h-full object-cover" data-alt="Close up view of translucent plastic oil and fuel chamber reservoir cap on chainsaw showing clean gasket seal without leaks" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDiECan68UPESm0ug-_dxc7--ZSXh7bnmI_gI7uh4XUtRdz-OIew1_aoubePDL2NELJu1m2J4Iwd8tXShAlkg7uz12oj5bxmm-dltXcaqGM09Syc6cdKZH-uKScLFnmlcDjgd0k4yjYQQLmh8vSbdm7icwrhyL-lhIqcMPjm3-8cmDcPoaRNI8ruigfWA_Q9riuUpO4_TfgvM1uUid7U2n-rkwZW6Gad_vcM7sSSv8"/>
+<span class="absolute top-1 right-1 bg-surface-tint text-on-primary rounded-full p-0.5 flex items-center justify-center">
+<span class="material-symbols-outlined text-[12px]">check</span>
+</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface font-medium truncate">Oil Chamber</span>
+<span class="font-body-sm text-body-sm text-secondary text-[10px]">WebP • 91 KB</span>
+</div>
+</div>
+</div>
+<!-- 5. Deposit Policy & Payment Configuration -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary">payments</span>
+<h4 class="font-label-lg text-label-lg text-on-surface font-bold">Security Deposit Policy</h4>
+</div>
+<span class="font-data-metric text-data-metric text-on-surface">₹3,000</span>
+</div>
+<!-- Segmented Selection Buttons -->
+<div class="grid grid-cols-3 bg-surface-container-low p-1 rounded-xl gap-1" id="depositToggleGroup">
+<button class="deposit-tab py-2 rounded-lg font-label-md text-label-md font-bold transition-all bg-primary text-on-primary shadow-sm text-center" onclick="selectDepositTier('full', this)" type="button">
+          Full (₹3k)
+        </button>
+<button class="deposit-tab py-2 rounded-lg font-label-md text-label-md font-medium text-secondary hover:text-on-surface transition-all text-center" onclick="selectDepositTier('partial', this)" type="button">
+          Partial
+        </button>
+<button class="deposit-tab py-2 rounded-lg font-label-md text-label-md font-medium text-secondary hover:text-on-surface transition-all text-center" onclick="selectDepositTier('zero', this)" type="button">
+          Zero (Trust)
+        </button>
+</div>
+<!-- Financial Calculation Rows -->
+<div class="flex flex-col gap-space-xs pt-1">
+<div class="flex items-center justify-between py-1">
+<span class="font-body-md text-body-md text-secondary">Advance Daily Rent</span>
+<span class="font-label-lg text-label-lg text-on-surface font-bold">₹800.00</span>
+</div>
+<div class="flex items-center justify-between py-1">
+<span class="font-body-md text-body-md text-secondary">Refundable Deposit (Handover)</span>
+<span class="font-label-lg text-label-lg text-on-surface font-bold text-primary" id="depositDisplayValue">₹3,000.00</span>
+</div>
+<div class="h-[1px] bg-surface-container-high my-1"></div>
+<div class="flex items-center justify-between py-1">
+<div>
+<span class="font-headline-sm text-headline-sm text-on-surface block">Net Payable Now</span>
+<span class="font-body-sm text-body-sm text-secondary">Instant settlement via UPI / Cash</span>
+</div>
+<span class="font-headline-lg text-headline-lg text-on-surface font-bold text-surface-tint" id="netPayableAmount">₹3,800.00</span>
+</div>
+</div>
+<!-- Payment Mode Selector -->
+<div class="flex items-center gap-space-sm pt-1">
+<label class="flex-1 flex items-center gap-2 p-2.5 rounded-lg bg-surface-container-low cursor-pointer transition-colors hover:bg-surface-container">
+<input checked="" class="accent-primary w-4 h-4" name="payMode" type="radio"/>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md text-on-surface font-bold">UPI QR / Pay</span>
+<span class="font-body-sm text-body-sm text-secondary text-[11px] truncate">GPay, PhonePe, Paytm</span>
+</div>
+</label>
+<label class="flex-1 flex items-center gap-2 p-2.5 rounded-lg bg-surface-container-low cursor-pointer transition-colors hover:bg-surface-container">
+<input class="accent-primary w-4 h-4" name="payMode" type="radio"/>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md text-on-surface font-bold">Direct Cash</span>
+<span class="font-body-sm text-body-sm text-secondary text-[11px] truncate">Cash in Till Box</span>
+</div>
+</label>
+</div>
+</div>
+<!-- 6. Automated Receipt Notification Badge -->
+<div class="p-space-md rounded-xl bg-primary-fixed/25 flex items-start gap-space-sm">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 text-on-primary">
+<span class="material-symbols-outlined text-[18px]">send_to_mobile</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-label-md text-label-md text-on-surface font-bold">Instant Dispatch Alerts Ready</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant text-[12px] leading-relaxed">
+          Digital PDF copy, Aadhaar receipt reference, and pre-rental photos will be automatically transmitted to <span class="font-bold text-on-surface">+91 98450-23910</span> via WhatsApp Business API upon submission.
+        </p>
+</div>
+</div>
+<!-- 7. Primary Action Dispatch CTA -->
+<div class="flex flex-col gap-space-sm pt-2">
+<button class="w-full h-12 bg-primary text-on-primary rounded-xl font-label-lg text-label-lg font-bold flex items-center justify-center gap-2 shadow-md hover:bg-primary-container active:scale-[0.99] transition-all" onclick="triggerDispatchSuccess(this)" type="button">
+<span class="material-symbols-outlined text-[20px]">assignment_turned_in</span>
+<span>Confirm Lend & Generate PDF Receipt</span>
+</button>
+<button class="w-full py-2.5 text-secondary font-label-md text-label-md font-semibold text-center hover:text-on-surface transition-colors" type="button">
+        Save Draft & Hold Unit (2 Hours)
+      </button>
+</div>
+</div>
+</div>
+<script>
+  function selectDepositTier(tier, btn) {
+    const tabs = document.querySelectorAll('.deposit-tab');
+    tabs.forEach(t => {
+      t.className = 'deposit-tab py-2 rounded-lg font-label-md text-label-md font-medium text-secondary hover:text-on-surface transition-all text-center';
+    });
+    btn.className = 'deposit-tab py-2 rounded-lg font-label-md text-label-md font-bold transition-all bg-primary text-on-primary shadow-sm text-center';
+
+    const depDisplay = document.getElementById('depositDisplayValue');
+    const netDisplay = document.getElementById('netPayableAmount');
+
+    if (tier === 'full') {
+      depDisplay.textContent = '₹3,000.00';
+      netDisplay.textContent = '₹3,800.00';
+    } else if (tier === 'partial') {
+      depDisplay.textContent = '₹1,500.00';
+      netDisplay.textContent = '₹2,300.00';
+    } else {
+      depDisplay.textContent = '₹0.00';
+      netDisplay.textContent = '₹800.00';
+    }
+  }
+
+  function triggerDispatchSuccess(button) {
+    button.disabled = true;
+    button.innerHTML = `
+      <span class="material-symbols-outlined animate-spin text-[20px]">sync</span>
+      <span>Generating PDF & WhatsApp Dispatch...</span>
+    `;
+    setTimeout(() => {
+      button.className = "w-full h-12 bg-surface-tint text-on-primary rounded-xl font-label-lg text-label-lg font-bold flex items-center justify-center gap-2 shadow-md transition-all";
+      button.innerHTML = `
+        <span class="material-symbols-outlined text-[20px]">check_circle</span>
+        <span>Lease Dispatched #RL-7749!</span>
+      `;
+    }, 1200);
+  }
+</script></main></body></html>

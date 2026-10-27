@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@100..900&display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface-tint": "#006c4a", "on-tertiary-fixed-variant": "#653e00", "on-background": "#0b1c30", "error": "#ba1a1a", "tertiary-container": "#a36700", "surface-container": "#e5eeff", "on-tertiary-fixed": "#2a1700", "outline-variant": "#bccac0", "surface-container-highest": "#d3e4fe", "on-primary": "#ffffff", "error-container": "#ffdad6", "secondary-fixed": "#dae2fd", "surface-bright": "#f8f9ff", "outline": "#6d7a72", "surface": "#f8f9ff", "surface-container-low": "#eff4ff", "surface-container-lowest": "#ffffff", "on-secondary-container": "#5c647a", "on-error-container": "#93000a", "primary-fixed": "#85f8c4", "tertiary": "#825100", "inverse-on-surface": "#eaf1ff", "surface-dim": "#cbdbf5", "on-secondary": "#ffffff", "primary-fixed-dim": "#68dba9", "tertiary-fixed": "#ffddb8", "on-primary-container": "#f5fff7", "inverse-primary": "#68dba9", "on-primary-fixed-variant": "#005137", "primary": "#006948", "on-error": "#ffffff", "surface-variant": "#d3e4fe", "tertiary-fixed-dim": "#ffb95f", "on-primary-fixed": "#002114", "inverse-surface": "#213145", "secondary": "#565e74", "on-surface": "#0b1c30", "background": "#f8f9ff", "primary-container": "#00855d", "secondary-fixed-dim": "#bec6e0", "on-tertiary": "#ffffff", "surface-container-high": "#dce9ff", "on-secondary-fixed-variant": "#3f465c", "on-surface-variant": "#3d4a42", "secondary-container": "#dae2fd", "on-tertiary-container": "#fffbff", "on-secondary-fixed": "#131b2e" }, "borderRadius": { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, "spacing": { "margin": "1rem", "space-sm": "0.5rem", "space-md": "1rem", "space-xs": "0.25rem", "space-lg": "1.5rem", "space-xl": "2rem", "gutter": "1rem" }, "fontFamily": { "headline-xl-mobile": ["Plus Jakarta Sans"], "body-lg": ["Plus Jakarta Sans"], "label-lg": ["Plus Jakarta Sans"], "data-metric": ["Plus Jakarta Sans"], "headline-md": ["Plus Jakarta Sans"], "headline-xl": ["Plus Jakarta Sans"], "label-sm": ["Plus Jakarta Sans"], "body-md": ["Plus Jakarta Sans"], "body-sm": ["Plus Jakarta Sans"], "label-md": ["Plus Jakarta Sans"], "headline-lg": ["Plus Jakarta Sans"], "headline-sm": ["Plus Jakarta Sans"] }, "fontSize": { "headline-xl-mobile": ["28px", { "lineHeight": "34px", "letterSpacing": "-0.025em", "fontWeight": "800" }], "body-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "label-lg": ["14px", { "lineHeight": "18px", "letterSpacing": "0.01em", "fontWeight": "600" }], "data-metric": ["22px", { "lineHeight": "26px", "letterSpacing": "-0.02em", "fontWeight": "800" }], "headline-md": ["20px", { "lineHeight": "26px", "letterSpacing": "-0.015em", "fontWeight": "700" }], "headline-xl": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.03em", "fontWeight": "800" }], "label-sm": ["10px", { "lineHeight": "12px", "letterSpacing": "0.04em", "fontWeight": "700" }], "body-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "400" }], "body-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.005em", "fontWeight": "400" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-sm": ["16px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "600" }] } } } };</script><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-on-surface flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 px-margin flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-sm min-w-0 flex-1"><img alt="RentLedger App Icon" class="h-8 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/AEtjO1UI4m8hayLhwz68ZWQIyl6VF-lP_ka0iPWel1b1uod0cNXAf4lHFPTJ-VhyUUtrZYH4txhBeEjvhXzsM5jqrW5xDaxdJOKC4nGZwHA4kLvK5ScIQbO_-aT5tlnBY3VsiR23YU62rMzKNcjKycciqGzXd2-kdm1ZvQfUbdUYRvLWn0mVnj7f7joEbUOh6zELWfBwjSTbLEkMVIBD41mJCBjBSo5MtdMY_bac3weu0OO6"/><div class="flex flex-col min-w-0"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm text-on-surface truncate leading-tight">Apex Rentals & Tools</span><span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm flex-shrink-0"><span class="material-symbols-outlined text-[12px] leading-none text-tertiary">verified</span>PRO GOLD</span></div><span class="font-label-sm text-label-sm text-on-surface-variant truncate uppercase tracking-wider">Inventory</span></div></div><div class="flex items-center gap-space-xs flex-shrink-0"><button aria-label="Notifications" class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface hover:bg-surface-container-high transition-colors relative"><span class="material-symbols-outlined text-[22px]">notifications</span><span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-error"></span></button><button aria-label="Open User Profile" class="w-11 h-11 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAWQHqTcuyv_S2qhudUzZVC-LwXbTDbxTv8-q_1yGXsDTuiW6AUJgyNEPgSNj9eZ-Jomo1h0ABaLPfTb_xE25xrDC8_FhRzX3Mg6tjGGleqrKaUCcWOWbS49MlXsM9s8QcbNdGvQcHiGbxIgXpO1O50nc6IWk5MLgCzSQaeO86iZs6WNAcOmYQ0HkjRu6x4aI8sxNNQ-Z5EBwqUDObk99DFT4oqlmtFoN4xpRd8s2w"/></button></div></div></header><main class="flex-1 flex flex-col relative w-full pt-16 pb-24 bg-surface"><div class="flex flex-col w-full px-margin space-y-space-md">
+<!-- Top Search & Quick Barcode Scanner -->
+<div class="flex items-center gap-space-sm pt-space-xs">
+<div class="flex-1 flex items-center bg-surface-container-low px-space-md py-2.5 rounded-xl shadow-sm">
+<span class="material-symbols-outlined text-outline text-[20px] mr-2">search</span>
+<input class="w-full bg-transparent text-on-surface font-body-md text-body-md placeholder-outline focus:outline-none" placeholder="Search by name, SKU or barcode..." type="text"/>
+<button aria-label="Voice Search" class="text-outline hover:text-primary transition-colors ml-1">
+<span class="material-symbols-outlined text-[18px]">mic</span>
+</button>
+</div>
+<button aria-label="Scan Barcode" class="w-11 h-11 flex items-center justify-center bg-surface-container-low text-primary rounded-xl shadow-sm active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[22px]">barcode_scanner</span>
+</button>
+<button aria-label="Filter" class="w-11 h-11 flex items-center justify-center bg-surface-container-low text-secondary rounded-xl shadow-sm active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[22px]">tune</span>
+</button>
+</div>
+<!-- Category & Availability Strip -->
+<div class="flex items-center gap-space-xs overflow-x-auto no-scrollbar py-0.5 -mx-margin px-margin">
+<div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-container text-on-primary font-label-md text-label-md shadow-sm flex-shrink-0 cursor-pointer">
+<span>All</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-lowest/20 font-label-sm text-label-sm">38</span>
+</div>
+<div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low text-on-surface-variant font-label-md text-label-md flex-shrink-0 cursor-pointer hover:bg-surface-container">
+<span>Power Tools</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-highest text-on-surface-variant font-label-sm text-label-sm">12</span>
+</div>
+<div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low text-on-surface-variant font-label-md text-label-md flex-shrink-0 cursor-pointer hover:bg-surface-container">
+<span>Cameras</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-highest text-on-surface-variant font-label-sm text-label-sm">8</span>
+</div>
+<div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low text-on-surface-variant font-label-md text-label-md flex-shrink-0 cursor-pointer hover:bg-surface-container">
+<span>Events</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-highest text-on-surface-variant font-label-sm text-label-sm">18</span>
+</div>
+<div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container text-primary font-label-md text-label-md flex-shrink-0 ml-auto">
+<span class="w-2 h-2 rounded-full bg-primary-container animate-pulse"></span>
+<span class="font-bold">31/38 Available</span>
+</div>
+</div>
+<!-- Smart Rate Auto-Calculator Highlight Card (Expanded Showcase Section 4.1) -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-md overflow-hidden relative">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[22px]">calculate</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Smart Rate Auto-Calculator</h2>
+</div>
+<div class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-label-sm text-label-sm font-semibold">
+<span class="material-symbols-outlined text-[13px] text-tertiary">bolt</span>
+        Active Multipliers
+      </div>
+</div>
+<!-- Active Item Preview Row -->
+<div class="flex items-start gap-space-sm bg-surface-container-low p-space-sm rounded-xl">
+<div class="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container-high relative">
+<img class="w-full h-full object-cover" data-alt="Heavy-duty professional electric rotary hammer drill resting on a modern polished concrete workshop bench with teal construction case in background, commercial product photography studio lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwWGQqDln7aluWRTdidOEWTJhxL9nC_vnE1eTApWgV1cozbd3RbZSV0tPAACQmX7I6SbE5jjTiOgN8osxeYqa_6Qj5mtKcD8AIYyQeRsMWxB2idSbtFUOJ10lZqn6oqN-CrrExTmlWmWaNOlHmafySQvV8eWZdAcskj1XzvHKO2k2fTAADfX4qtdXswUrpnynrHDFraTiGqNc8o-sVrxi77__SKWmdRV_1f6xAwvc"/>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-primary font-bold tracking-wider uppercase">SKU: HD-BSH-401</span>
+<span class="inline-flex items-center px-1.5 py-0.2 rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm text-[10px]">Power Tools</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface truncate mt-0.5">Bosch Professional Rotary Hammer</p>
+<div class="flex items-center gap-space-sm text-on-surface-variant font-body-sm text-body-sm mt-1">
+<span class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+            Total: <strong class="text-on-surface">3</strong> (2 Avail, 1 Leased)
+          </span>
+<span>•</span>
+<span>Deposit: <strong class="text-on-surface">₹2,500</strong></span>
+</div>
+</div>
+</div>
+<!-- Interactive Base Input & Dynamic Computed Grid -->
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1" for="base-hourly-input">
+          Base Hourly Benchmark
+          <span class="material-symbols-outlined text-[14px] text-outline" title="Changes auto-recalculate all tiers">help</span>
+</label>
+<span class="font-label-sm text-label-sm text-primary font-bold">Standard 8h Shift Logic</span>
+</div>
+<div class="flex items-center bg-surface-container-low rounded-xl px-space-md py-2">
+<span class="font-data-metric text-headline-md text-on-surface mr-1">₹</span>
+<input class="w-full font-data-metric text-data-metric text-on-surface bg-transparent focus:outline-none" id="base-hourly-input" type="number" value="150"/>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-bold uppercase ml-2">/ Hour</span>
+</div>
+<!-- Tier Rate Multiplier Matrix -->
+<div class="grid grid-cols-3 gap-space-xs pt-1">
+<!-- Daily -->
+<div class="bg-surface-container-low p-2.5 rounded-xl flex flex-col justify-between">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-label-sm text-label-sm uppercase font-bold">Daily</span>
+<span class="text-[10px] font-label-sm text-primary font-bold">8x Rate</span>
+</div>
+<p class="font-data-metric text-headline-sm text-on-surface mt-1.5" id="daily-calc">₹1,200</p>
+<span class="text-[10px] font-body-sm text-on-surface-variant mt-0.5">₹1,200 / day</span>
+</div>
+<!-- Weekly -->
+<div class="bg-surface-container-low p-2.5 rounded-xl flex flex-col justify-between">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-label-sm text-label-sm uppercase font-bold">Weekly</span>
+<span class="text-[10px] font-label-sm text-primary font-bold">6x Daily</span>
+</div>
+<p class="font-data-metric text-headline-sm text-on-surface mt-1.5" id="weekly-calc">₹7,200</p>
+<span class="text-[10px] font-body-sm text-on-surface-variant mt-0.5">₹7,200 / wk</span>
+</div>
+<!-- Monthly -->
+<div class="bg-surface-container-low p-2.5 rounded-xl flex flex-col justify-between">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-label-sm text-label-sm uppercase font-bold">Monthly</span>
+<span class="text-[10px] font-label-sm text-primary font-bold">22x Daily</span>
+</div>
+<p class="font-data-metric text-headline-sm text-on-surface mt-1.5" id="monthly-calc">₹26,400</p>
+<span class="text-[10px] font-body-sm text-on-surface-variant mt-0.5">₹26,400 / mo</span>
+</div>
+</div>
+</div>
+<!-- Multiplier Policy Helper & Override Toggle -->
+<div class="flex items-center justify-between pt-1">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary-container text-[16px]">verified</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Smart multipliers active</span>
+</div>
+<button class="font-label-sm text-label-sm text-primary hover:underline font-bold flex items-center gap-0.5">
+<span>Edit Multipliers</span>
+<span class="material-symbols-outlined text-[14px]">tune</span>
+</button>
+</div>
+</div>
+<!-- Active Inventory List Header -->
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex items-center gap-space-xs">
+<h3 class="font-headline-md text-headline-md text-on-surface">Equipment Fleet</h3>
+<span class="inline-flex items-center justify-center h-5 px-2 rounded-full bg-surface-container-highest text-on-surface-variant font-label-sm text-label-sm font-bold">38 Items</span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant font-label-md text-label-md">
+<span>Sort:</span>
+<button class="font-bold text-on-surface flex items-center">
+        Availability
+        <span class="material-symbols-outlined text-[16px]">arrow_drop_down</span>
+</button>
+</div>
+</div>
+<!-- Inventory Items List -->
+<div class="space-y-space-sm pb-12">
+<!-- Card 1: DJI RS 3 Pro Gimbal -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-sm active:scale-[0.99] transition-transform">
+<div class="flex items-start gap-space-sm">
+<div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container-high relative">
+<img class="w-full h-full object-cover" data-alt="High-end professional carbon fiber camera gimbal stabilizer mounted on a sleek dark slate platform with cinematic teal rim lighting, product close up." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCI2Q7IvGQrXG7Eab6BtIxLMpAnk9eR3J1v3vFwKR5CjyhDTFER-eRjgiCPJI1hkxhvMCvUFIFMNIgAEbR9oncPZOMvGb9DZ97NW0j-7n-JiA-Hl_4--LOfIrM8_gDIqW_nnYgsAdIuNOY8FBDa8qVd345jVi5ByRCjWyKlNU2yV1jJNmvstIhe8n4f-Pp_GLCOFOFTQghIn2uQA0tcpjk1h4cV327iw0p1SuyIBdk"/>
+<span class="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-on-background/80 text-on-primary font-label-sm text-[8px] leading-tight font-bold">SKU-772</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1">
+<h4 class="font-headline-sm text-headline-sm text-on-surface truncate">DJI RS 3 Pro Gimbal</h4>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm font-bold flex-shrink-0">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+              2/2 Avail
+            </span>
+</div>
+<div class="flex items-center gap-space-sm text-body-sm font-body-sm text-on-surface-variant mt-1">
+<span>Deposit: <strong class="text-on-surface">₹5,000</strong></span>
+<span>•</span>
+<span>Daily: <strong class="text-primary font-bold">₹800/day</strong></span>
+</div>
+<div class="flex items-center gap-1.5 mt-2 bg-surface-container-low px-2 py-1 rounded-lg">
+<span class="material-symbols-outlined text-tertiary-container text-[14px]">monetization_on</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Lifetime Revenue:</span>
+<span class="font-label-sm text-label-sm text-on-surface font-bold">₹34,200</span>
+<span class="font-label-sm text-[10px] text-outline ml-auto">(24 leases)</span>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1 text-label-sm">
+<div class="flex items-center gap-2">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container transition-colors flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-[14px]">history</span>
+            History
+          </button>
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container transition-colors flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-[14px]">qr_code</span>
+            Tag
+          </button>
+</div>
+<button class="px-3 py-1.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md font-semibold flex items-center gap-1 shadow-sm active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[16px]">add_shopping_cart</span>
+          Quick Lease
+        </button>
+</div>
+</div>
+<!-- Card 2: Honda 2.5kVA Silent Generator -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-sm active:scale-[0.99] transition-transform">
+<div class="flex items-start gap-space-sm">
+<div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container-high relative">
+<img class="w-full h-full object-cover" data-alt="Compact red industrial portable inverter silent generator resting in an equipment warehouse ready for event dispatch, clean sharp angles, professional equipment photograph." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB-W762FlvQnjdwK56ICbz7vVNHu5ggSMV8s5tJHIqbrjfcMuIRX51N_IaHluVOwL1dHj09NeNox642XkiVXtwM7C2FavSSIHrIi27HnghbMGx6vwzR5rJL-xVb49NjX9x-9TiCSz_7d0x719Pv-Uq0T0BlsGd1ZZZ4LjMWmqYsNKnyLtQ4ujl5j7Byt7b1mcBHRRXWWAA--0rbYyLO316N8aNXKp2RqQLHmAKYXsU"/>
+<span class="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-on-background/80 text-on-primary font-label-sm text-[8px] leading-tight font-bold">SKU-319</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1">
+<h4 class="font-headline-sm text-headline-sm text-on-surface truncate">Honda 2.5kVA Generator</h4>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-error-container text-on-error-container font-label-sm text-label-sm font-bold flex-shrink-0">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+              0/1 Leased
+            </span>
+</div>
+<div class="flex items-center gap-space-sm text-body-sm font-body-sm text-on-surface-variant mt-1">
+<span>Deposit: <strong class="text-on-surface">₹6,000</strong></span>
+<span>•</span>
+<span>Daily: <strong class="text-primary font-bold">₹1,500/day</strong></span>
+</div>
+<!-- Leased Out Sub-Banner -->
+<div class="flex items-center justify-between mt-2 bg-secondary-container/50 px-2 py-1.5 rounded-lg">
+<div class="flex items-center gap-1.5 min-w-0">
+<span class="material-symbols-outlined text-secondary text-[16px]">person</span>
+<span class="font-label-sm text-label-sm text-on-secondary-container truncate">Vikram S. (Event Prod)</span>
+</div>
+<span class="font-label-sm text-[10px] text-tertiary-container font-bold flex-shrink-0">Due in 2 days</span>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1 text-label-sm">
+<div class="flex items-center gap-2">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container transition-colors flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-[14px]">receipt_long</span>
+            Lease #L-482
+          </button>
+</div>
+<button class="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface font-label-md text-label-md font-semibold flex items-center gap-1 shadow-sm active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[16px]">assignment_turned_in</span>
+          Intake / Return
+        </button>
+</div>
+</div>
+<!-- Card 3: Sony GM 70-200mm f/2.8 OSS II -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-sm active:scale-[0.99] transition-transform">
+<div class="flex items-start gap-space-sm">
+<div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-surface-container-high relative">
+<img class="w-full h-full object-cover" data-alt="Professional white telephoto camera lens with black accents and orange G Master emblem resting diagonally on an anti-static velvet pad, dramatic soft studio lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDriDQZTH-XiJCiLp4OS4vhjfFxfg0LXlYQutY1WzAmMOmDT5M3raa325EOCOyZYi7AVLBfLKbkBV_x6uKjOkKe6dANU1M9T_xji0tpqIvHj0sIHlNPvnH_AeTwkhLU09WrwajnXFjlcYomTBMltBt-6P94thYbSbygQTiIsjQq5j50W6cf3OnrsxjRQiXJEgCK-aQH71x8Tsds4NAdwJiZOZkpJGlvg9Be6liM8Tg"/>
+<span class="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-on-background/80 text-on-primary font-label-sm text-[8px] leading-tight font-bold">SKU-804</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center justify-between gap-1">
+<h4 class="font-headline-sm text-headline-sm text-on-surface truncate">Sony GM 70-200mm f/2.8</h4>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm text-label-sm font-bold flex-shrink-0">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+              1/2 Avail
+            </span>
+</div>
+<div class="flex items-center gap-space-sm text-body-sm font-body-sm text-on-surface-variant mt-1">
+<span>Deposit: <strong class="text-on-surface">₹8,000</strong></span>
+<span>•</span>
+<span>Daily: <strong class="text-primary font-bold">₹1,800/day</strong></span>
+</div>
+<div class="flex items-center gap-1.5 mt-2 bg-surface-container-low px-2 py-1 rounded-lg">
+<span class="material-symbols-outlined text-outline text-[14px]">shield_with_heart</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Care Coverage:</span>
+<span class="font-label-sm text-label-sm text-primary font-semibold">Active (Full Transit)</span>
+<span class="font-label-sm text-[10px] text-outline ml-auto">Serial #82109</span>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-1 text-label-sm">
+<div class="flex items-center gap-2">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container transition-colors flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-[14px]">edit</span>
+            Modify
+          </button>
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container transition-colors flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+            Calendar
+          </button>
+</div>
+<button class="px-3 py-1.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md font-semibold flex items-center gap-1 shadow-sm active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[16px]">add_shopping_cart</span>
+          Quick Lease
+        </button>
+</div>
+</div>
+</div>
+<!-- Floating Add Item Pro Hub Button (Sticky within slot bottom) -->
+<div class="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-1">
+<div class="px-2 py-0.5 rounded-full bg-on-background text-on-primary font-label-sm text-[10px] font-bold shadow-md flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px] text-tertiary-fixed">all_inclusive</span>
+      38 / ∞ Unlimited Pro
+    </div>
+<button aria-label="Add Equipment Item" class="flex items-center gap-2 h-12 px-4 rounded-full bg-primary text-on-primary shadow-lg hover:bg-primary-container active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[22px]">add</span>
+<span class="font-label-lg text-label-lg font-bold">Add Equipment</span>
+</button>
+</div>
+</div>
+<!-- Interactive Client-side Script for Real-time Smart Auto-Calculator Demo -->
+<script>
+  (function() {
+    const hourlyInput = document.getElementById('base-hourly-input');
+    const dailyCalc = document.getElementById('daily-calc');
+    const weeklyCalc = document.getElementById('weekly-calc');
+    const monthlyCalc = document.getElementById('monthly-calc');
+
+    if (!hourlyInput || !dailyCalc || !weeklyCalc || !monthlyCalc) return;
+
+    function recalculateRates() {
+      const hourly = parseFloat(hourlyInput.value) || 0;
+      const daily = Math.round(hourly * 8);
+      const weekly = Math.round(daily * 6);
+      const monthly = Math.round(daily * 22);
+
+      dailyCalc.textContent = '₹' + daily.toLocaleString('en-IN');
+      weeklyCalc.textContent = '₹' + weekly.toLocaleString('en-IN');
+      monthlyCalc.textContent = '₹' + monthly.toLocaleString('en-IN');
+    }
+
+    hourlyInput.addEventListener('input', recalculateRates);
+  })();
+</script></main><nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface/90 backdrop-blur-xl shadow-[0_-1px_12px_rgba(0,0,0,0.05)]" data-active-classes="text-primary font-bold"><div class="flex items-center justify-around h-16 px-space-xs max-w-lg mx-auto"><a class="flex flex-col items-center justify-center w-16 h-12 rounded-xl text-on-surface-variant hover:text-on-surface transition-colors relative" data-path="dashboard" href="#"><span class="material-symbols-outlined text-[24px]">dashboard</span><span class="font-label-sm text-label-sm mt-0.5">Dashboard</span></a><a class="flex flex-col items-center justify-center w-16 h-12 rounded-xl text-on-surface-variant hover:text-on-surface transition-colors relative" data-path="calendar-leases" href="#"><div class="relative"><span class="material-symbols-outlined text-[24px]">calendar_month</span><span class="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-primary-container text-on-primary-container font-label-sm text-[9px] leading-none font-bold">8</span></div><span class="font-label-sm text-label-sm mt-0.5">Leases</span></a><a aria-current="page" class="flex flex-col items-center justify-center w-16 h-12 rounded-xl transition-colors relative text-primary font-bold" data-path="inventory" href="#"><div class="relative"><span class="material-symbols-outlined text-[24px]">inventory_2</span><span class="absolute -top-1 -right-2.5 px-1 py-0.2 rounded-full bg-surface-container-highest text-on-surface-variant font-label-sm text-[9px] leading-none font-bold">142</span></div><span class="font-label-sm text-label-sm mt-0.5">Inventory</span></a><a class="flex flex-col items-center justify-center w-16 h-12 rounded-xl text-on-surface-variant hover:text-on-surface transition-colors relative" data-path="business-profile-reports" href="#"><span class="material-symbols-outlined text-[24px]">query_stats</span><span class="font-label-sm text-label-sm mt-0.5">Reports</span></a></div></nav></body></html>
