@@ -560,9 +560,10 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
 
       // Build Multi-Item Summary String for Notes/Receipt
       final itemsSummary = _selectedLeaseItems.map((li) => '${li.pieces}x ${li.item.name}').join(', ');
-      final primaryItem = _selectedLeaseItems.first.item;
+      final primaryLeaseItem = _selectedLeaseItems.first;
+      final primaryItem = primaryLeaseItem.item;
 
-      // 3. Create Lease
+      // 3. Create Primary Lease
       final lease = LeaseModel(
         id: leaseId,
         storeId: store.id,
@@ -576,6 +577,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
         advanceRentPaid: double.tryParse(_advanceRentController.text) ?? 0.0,
         depositPaymentType: _depositPaymentType,
         returnNotes: 'Leased Equipment Items: $itemsSummary',
+        quantity: primaryLeaseItem.pieces,
         status: _startTime.isAfter(DateTime.now().add(const Duration(hours: 1)))
             ? 'upcoming'
             : 'active',
@@ -593,6 +595,45 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
             totalItemQuantity: primaryItem.totalQuantity,
           );
 
+      final List<LeaseModel> allCreatedLeases = [createdLease];
+
+      // 3b. Create leases for additional items in multi-item order if present
+      if (_selectedLeaseItems.length > 1) {
+        for (int i = 1; i < _selectedLeaseItems.length; i++) {
+          final lineItem = _selectedLeaseItems[i];
+          final extraLease = LeaseModel(
+            id: UuidGenerator.generateV4(),
+            storeId: store.id,
+            itemId: lineItem.item.id,
+            customerId: customer.id,
+            startTime: _startTime,
+            expectedEndTime: _expectedEndTime,
+            beforePhotoUrls: uploadedPhotoUrls,
+            depositExpected: lineItem.item.depositAmount * lineItem.pieces,
+            depositPaid: 0.0,
+            advanceRentPaid: 0.0,
+            depositPaymentType: 'full',
+            returnNotes: 'Part of multi-item order #${lease.shortId}: $itemsSummary',
+            quantity: lineItem.pieces,
+            status: _startTime.isAfter(DateTime.now().add(const Duration(hours: 1)))
+                ? 'upcoming'
+                : 'active',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            item: lineItem.item,
+            customer: customer,
+          );
+          if (mounted) {
+            final extraCreated = await context.read<LeaseCubit>().createLease(
+                  extraLease,
+                  isPro: widget.isPro,
+                  totalItemQuantity: lineItem.item.totalQuantity,
+                );
+            allCreatedLeases.add(extraCreated);
+          }
+        }
+      }
+
       // Reload inventory so available quantities immediately decrement
       if (mounted) {
         context.read<InventoryCubit>().loadInventory();
@@ -602,6 +643,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       final pdfFile = await PdfReceiptService.instance.generateHandoverReceipt(
         store: store,
         lease: createdLease,
+        multiItemLeases: allCreatedLeases,
       );
 
       if (!mounted) return;
@@ -1674,124 +1716,363 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
           ),
           const SizedBox(height: 12),
 
-          // 2 Side-by-Side Cards (Rental Estimate & Security Deposit)
-          Row(
+          // Stacked Column Section for Financial Summary Breakdown
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Card 1: Rental Estimate
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
-                        ),
-                        child: Text(
-                          'Rental Estimate',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
-                        ),
+              // Card 1: Rental Estimate Breakdown
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(child: Text('Estimated rental charges', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
-                                Text('$currency${totalEstimatedRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(child: Text('Advance rent received', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
-                                Text('$currency${advanceRentPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(child: Text('Estimated rent balance', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary))),
-                                Text('$currency${estimatedRentBalance.toStringAsFixed(2)}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
-                              ],
-                            ),
-                          ],
-                        ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Rental Estimate',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
+                          ),
+                          Text(
+                            'Total Est.: $currency${totalEstimatedRent.toStringAsFixed(2)}',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Itemized Rental Cost Breakdown',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                          ),
+                          const SizedBox(height: 8),
+                          ..._selectedLeaseItems.map((line) {
+                            final breakdown = RateCalculator.getReturnRentBreakdown(
+                              startTime: _startTime,
+                              actualReturnTime: _expectedEndTime,
+                              rateHourly: line.item.rateHourly,
+                              rateDaily: line.item.rateDaily,
+                              rateWeekly: line.item.rateWeekly,
+                              rateMonthly: line.item.rateMonthly,
+                              currency: currency,
+                            );
+                            final singleUnitRent = breakdown.totalRent;
+                            final lineSubtotal = singleUnitRent * line.pieces;
+                            final combinedHourlyRate = line.item.rateHourly * line.pieces;
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        '${line.pieces}x ${line.item.name}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                                        ),
+                                      ),
+                                      Text(
+                                        '$currency${lineSubtotal.toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  if (line.item.rateHourly > 0)
+                                    Text(
+                                      'Rate: $currency${line.item.rateHourly.toStringAsFixed(2)}/hr per piece'
+                                      '${line.pieces > 1 ? '  (Combined: $currency${combinedHourlyRate.toStringAsFixed(2)}/hr for ${line.pieces} pcs)' : ''}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy,
+                                      ),
+                                    ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Duration: ${breakdown.durationText}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? AppColors.darkCard : Colors.white,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFCBD5E1)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Step-by-Step Cost Breakdown:',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        ...breakdown.components.map((comp) {
+                                          final compTotal = comp.amount * line.pieces;
+                                          return Padding(
+                                            padding: const EdgeInsets.only(bottom: 2),
+                                            child: Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    '• ${comp.label}: ${comp.calculation}',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                                                    ),
+                                                  ),
+                                                ),
+                                                Text(
+                                                  line.pieces > 1
+                                                      ? '$currency${comp.amount.toStringAsFixed(2)}/pc ($currency${compTotal.toStringAsFixed(2)} total)'
+                                                      : '$currency${comp.amount.toStringAsFixed(2)}',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }),
+                                        const SizedBox(height: 4),
+                                        Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'Per-Piece Rent Subtotal:',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                              ),
+                                            ),
+                                            Text(
+                                              '$currency${singleUnitRent.toStringAsFixed(2)} / pc',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        if (line.pieces > 1) ...[
+                                          const SizedBox(height: 2),
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                'Combined Total (${line.pieces} pcs):',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                                ),
+                                              ),
+                                              Text(
+                                                '${line.pieces} × $currency${singleUnitRent.toStringAsFixed(2)} = $currency${lineSubtotal.toStringAsFixed(2)}',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 4),
+                          Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Total estimated rental charges', style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                              Text('$currency${totalEstimatedRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Advance rent received', style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                              Text('$currency${advanceRentPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Estimated rent balance due', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                              Text('$currency${estimatedRentBalance.toStringAsFixed(2)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(height: 12),
 
-              // Card 2: Security Deposit
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
-                        ),
-                        child: Text(
-                          'Security Deposit',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
-                        ),
+              // Card 2: Security Deposit Breakdown
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(child: Text('Deposit required', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
-                                Text('$currency${totalExpectedDeposit.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(child: Text('Deposit received', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
-                                Text('$currency${depositPaid.toStringAsFixed(2)}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(child: Text('Deposit outstanding', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy))),
-                                Text('$currency${depositOutstanding.toStringAsFixed(2)}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy)),
-                              ],
-                            ),
-                          ],
-                        ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Security Deposit',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
+                          ),
+                          Text(
+                            'Total Req.: $currency${totalExpectedDeposit.toStringAsFixed(2)}',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Itemized Deposit Breakdown',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                          ),
+                          const SizedBox(height: 8),
+                          ..._selectedLeaseItems.map((line) {
+                            final lineDeposit = line.item.depositAmount * line.pieces;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${line.pieces}x ${line.item.name}',
+                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Calculation: ${line.pieces} ${line.pieces > 1 ? 'pieces' : 'piece'} × $currency${line.item.depositAmount.toStringAsFixed(2)} deposit',
+                                        style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    '$currency${lineDeposit.toStringAsFixed(2)}',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 4),
+                          Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Total deposit required', style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                              Text('$currency${totalExpectedDeposit.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Deposit received', style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                              Text('$currency${depositPaid.toStringAsFixed(2)}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Deposit outstanding', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy)),
+                              Text('$currency${depositOutstanding.toStringAsFixed(2)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

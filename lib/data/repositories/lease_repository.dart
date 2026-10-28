@@ -52,10 +52,11 @@ class LeaseRepository {
     required DateTime startTime,
     required DateTime expectedEndTime,
     required int totalQuantity,
+    int requestedQuantity = 1,
     String? excludeLeaseId,
   }) async {
     final activeLeases = await getLeases(itemId: itemId);
-    final overlapping = activeLeases.where((l) {
+    final totalOverlapping = activeLeases.where((l) {
       if (l.id == excludeLeaseId) return false;
       if (l.status != 'active' && l.status != 'upcoming') return false;
 
@@ -63,9 +64,9 @@ class LeaseRepository {
       final overlap =
           startTime.isBefore(l.expectedEndTime) && expectedEndTime.isAfter(l.startTime);
       return overlap;
-    }).length;
+    }).fold<int>(0, (sum, l) => sum + l.quantity);
 
-    return overlapping >= totalQuantity;
+    return (totalOverlapping + requestedQuantity) > totalQuantity;
   }
 
   /// Create new lease with free quota check & conflict validator
@@ -92,6 +93,7 @@ class LeaseRepository {
       startTime: lease.startTime,
       expectedEndTime: lease.expectedEndTime,
       totalQuantity: totalItemQuantity,
+      requestedQuantity: lease.quantity,
     );
 
     if (isBlocked) {

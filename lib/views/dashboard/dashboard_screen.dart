@@ -397,7 +397,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _buildTelemetryCard(
               title: 'Deposits Held',
               value: '$currency${NumberFormat('#,##0').format(depositsHeld)}',
-              subtitle: '100% Escrowed',
+              subtitle: 'Refundable on Return',
               icon: Icons.lock_clock_outlined,
               iconColor: AppColors.primary,
               iconBg: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,

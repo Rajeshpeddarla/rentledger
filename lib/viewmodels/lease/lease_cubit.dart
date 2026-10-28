@@ -49,12 +49,14 @@ class LeaseCubit extends Cubit<LeaseState> {
     required DateTime startTime,
     required DateTime expectedEndTime,
     required int totalQuantity,
+    int requestedQuantity = 1,
   }) async {
     return await _leaseRepository.hasDateConflict(
       itemId: itemId,
       startTime: startTime,
       expectedEndTime: expectedEndTime,
       totalQuantity: totalQuantity,
+      requestedQuantity: requestedQuantity,
     );
   }
 

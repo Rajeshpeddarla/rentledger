@@ -27,6 +27,7 @@ class LeaseModel extends Equatable {
   final double finalSettlementBalance;
   final String? returnNotes;
 
+  final int quantity;
   final String status; // 'upcoming', 'active', 'returned', 'cancelled'
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -55,6 +56,7 @@ class LeaseModel extends Equatable {
     this.netRentTotal = 0.0,
     this.finalSettlementBalance = 0.0,
     this.returnNotes,
+    this.quantity = 1,
     this.status = 'active',
     required this.createdAt,
     required this.updatedAt,
@@ -135,6 +137,7 @@ class LeaseModel extends Equatable {
       finalSettlementBalance:
           (json['final_settlement_balance'] as num?)?.toDouble() ?? 0.0,
       returnNotes: json['return_notes'] as String?,
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       status: json['status'] as String? ?? 'active',
       createdAt: json['created_at'] != null
           ? _parseLocalDateTime(json['created_at'])
@@ -172,6 +175,7 @@ class LeaseModel extends Equatable {
       'net_rent_total': netRentTotal,
       'final_settlement_balance': finalSettlementBalance,
       'return_notes': returnNotes,
+      'quantity': quantity,
       'status': status,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -198,6 +202,7 @@ class LeaseModel extends Equatable {
     double? netRentTotal,
     double? finalSettlementBalance,
     String? returnNotes,
+    int? quantity,
     String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -225,6 +230,7 @@ class LeaseModel extends Equatable {
       finalSettlementBalance:
           finalSettlementBalance ?? this.finalSettlementBalance,
       returnNotes: returnNotes ?? this.returnNotes,
+      quantity: quantity ?? this.quantity,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -254,6 +260,7 @@ class LeaseModel extends Equatable {
         netRentTotal,
         finalSettlementBalance,
         returnNotes,
+        quantity,
         status,
         createdAt,
         updatedAt,

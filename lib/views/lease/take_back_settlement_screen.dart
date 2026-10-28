@@ -10,6 +10,7 @@ import '../../core/utils/rate_calculator.dart';
 import '../../core/utils/whatsapp_launcher.dart';
 import '../../core/widgets/app_image_view.dart';
 import '../../data/models/discount_model.dart';
+import '../../data/models/inventory_item_model.dart';
 import '../../data/models/lease_model.dart';
 import '../../data/models/store_model.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
@@ -17,6 +18,7 @@ import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/discount/discount_cubit.dart';
 import '../../viewmodels/discount/discount_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
+import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
 
 class TakeBackSettlementScreen extends StatefulWidget {
@@ -68,19 +70,33 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   }
 
   void _recalculate() {
-    final item = widget.lease.item;
-    if (item == null) return;
+    InventoryItemModel? item = widget.lease.item;
+    if (item == null) {
+      try {
+        final invState = context.read<InventoryCubit>().state;
+        if (invState is InventoryLoaded) {
+          item = invState.allItems.firstWhere((i) => i.id == widget.lease.itemId);
+        }
+      } catch (_) {}
+    }
 
-    _breakdown = RateCalculator.getReturnRentBreakdown(
-      startTime: widget.lease.startTime,
-      actualReturnTime: _actualReturnTime,
-      rateHourly: item.rateHourly,
-      rateDaily: item.rateDaily,
-      rateWeekly: item.rateWeekly,
-      rateMonthly: item.rateMonthly,
-      billingMode: _billingMode,
-    );
-    _calculatedRent = _breakdown!.totalRent;
+    double singleUnitRent = 0.0;
+    if (item != null) {
+      _breakdown = RateCalculator.getReturnRentBreakdown(
+        startTime: widget.lease.startTime,
+        actualReturnTime: _actualReturnTime,
+        rateHourly: item.rateHourly,
+        rateDaily: item.rateDaily,
+        rateWeekly: item.rateWeekly,
+        rateMonthly: item.rateMonthly,
+        billingMode: _billingMode,
+      );
+      singleUnitRent = _breakdown!.totalRent;
+    } else {
+      singleUnitRent = widget.lease.calculatedRent > 0 ? widget.lease.calculatedRent : 0.0;
+    }
+
+    _calculatedRent = singleUnitRent * widget.lease.quantity;
 
     if (_selectedDiscount != null) {
       final discountAmt = _selectedDiscount!.calculateDiscountAmount(_calculatedRent);
@@ -637,6 +653,59 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
 
             const SizedBox(height: 14),
 
+            // Prior Upfront Payments & Credits Card
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.account_balance_wallet_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                      const SizedBox(width: 6),
+                      const Text('Prior Upfront Payments & Credits', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Security deposit paid upfront', style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      Text('$currency${widget.lease.depositPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Advance rent paid upfront', style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      Text('$currency${widget.lease.advanceRentPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Total Upfront Credit Available', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                      Text(
+                        '$currency${(widget.lease.depositPaid + widget.lease.advanceRentPaid).toStringAsFixed(2)}',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
             // Smart Ledger Calculation Breakdown
             Container(
               padding: const EdgeInsets.all(14),
@@ -660,6 +729,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                   // Display Component Breakdown List
                   if (_breakdown != null && _breakdown!.components.isNotEmpty) ...[
                     ..._breakdown!.components.map((comp) {
+                      final compSubtotal = comp.amount * widget.lease.quantity;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: Row(
@@ -670,15 +740,52 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(comp.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  Text(comp.calculation, style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                                  Text(
+                                    widget.lease.quantity > 1
+                                        ? '${comp.calculation} = $currency${comp.amount.toStringAsFixed(2)} / pc'
+                                        : comp.calculation,
+                                    style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                  ),
                                 ],
                               ),
                             ),
-                            Text('$currency${comp.amount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            Text(
+                              widget.lease.quantity > 1
+                                  ? '$currency${comp.amount.toStringAsFixed(2)} / pc\n($currency${compSubtotal.toStringAsFixed(2)})'
+                                  : '$currency${comp.amount.toStringAsFixed(2)}',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.right,
+                            ),
                           ],
                         ),
                       );
                     }),
+                    if (widget.lease.quantity > 1) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Multi-Piece Calculation:\n${widget.lease.quantity} pcs × $currency${(_breakdown?.totalRent ?? (widget.lease.quantity > 0 ? _calculatedRent / widget.lease.quantity : 0)).toStringAsFixed(2)} / pc',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                              ),
+                            ),
+                            Text(
+                              'Total: $currency${_calculatedRent.toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 6),
                     Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                     const SizedBox(height: 6),
@@ -796,16 +903,30 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                       Text('$currency${_netRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Less: Security Deposit Held in Escrow',
-                          style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                      Text('-$currency${widget.lease.depositPaid.toStringAsFixed(2)}',
-                          style: TextStyle(fontSize: 11, color: isDark ? AppColors.primaryLight : AppColors.primary)),
-                    ],
-                  ),
+                  if (widget.lease.advanceRentPaid > 0) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Less: Advance Rent Paid Upfront',
+                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                        Text('-$currency${widget.lease.advanceRentPaid.toStringAsFixed(2)}',
+                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                      ],
+                    ),
+                  ],
+                  if (widget.lease.depositPaid > 0) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Less: Security Deposit Held Upfront',
+                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                        Text('-$currency${widget.lease.depositPaid.toStringAsFixed(2)}',
+                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -903,7 +1024,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                       height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
                     )
-                  : const Text('Confirm Payment & Release Item Back to Inventory', style: TextStyle(fontWeight: FontWeight.w700)),
+                  : const Text('Confirm Payment & Release Item', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
             const SizedBox(height: 32),
           ],

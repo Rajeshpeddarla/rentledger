@@ -29,38 +29,20 @@ class InventoryRepository {
 
         final data = await query.order('created_at', ascending: false);
 
-        // Fetch active leases count per item in realtime (handles multi-item piece quantities)
+        // Fetch active leases count per item in realtime using exact quantity
         final Map<String, int> activeCounts = {};
         try {
           final activeLeasesData = await _client
               .from('leases')
-              .select('item_id, return_notes')
+              .select('item_id, quantity')
               .eq('store_id', user.id)
               .eq('status', 'active');
 
           for (final row in (activeLeasesData as List)) {
             final iId = row['item_id'] as String?;
-            final notes = row['return_notes'] as String? ?? '';
-
-            if (notes.contains('Leased Equipment Items:')) {
-              final itemsPart = notes.replaceFirst('Leased Equipment Items:', '').trim();
-              for (final rawItem in itemsPart.split(',')) {
-                final trimmed = rawItem.trim();
-                final match = RegExp(r'^(\d+)x\s+(.+)$').firstMatch(trimmed);
-                if (match != null) {
-                  final pcs = int.tryParse(match.group(1) ?? '1') ?? 1;
-                  final itemName = match.group(2)?.trim().toLowerCase() ?? '';
-                  for (final rawItemObj in data) {
-                    final objName = (rawItemObj['name'] as String? ?? '').toLowerCase();
-                    final objId = rawItemObj['id'] as String;
-                    if (objName == itemName || itemName.contains(objName) || objName.contains(itemName)) {
-                      activeCounts[objId] = (activeCounts[objId] ?? 0) + pcs;
-                    }
-                  }
-                }
-              }
-            } else if (iId != null) {
-              activeCounts[iId] = (activeCounts[iId] ?? 0) + 1;
+            final qty = (row['quantity'] as num?)?.toInt() ?? 1;
+            if (iId != null) {
+              activeCounts[iId] = (activeCounts[iId] ?? 0) + qty;
             }
           }
         } catch (e) {
@@ -89,7 +71,7 @@ class InventoryRepository {
         final activeLeases = await _leaseRepository.getLeases(status: 'active');
         final Map<String, int> counts = {};
         for (final l in activeLeases) {
-          counts[l.itemId] = (counts[l.itemId] ?? 0) + 1;
+          counts[l.itemId] = (counts[l.itemId] ?? 0) + l.quantity;
         }
         return _items
             .where((item) => includeArchived ? true : !item.isArchived)

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/config/app_theme.dart';
 import '../../core/widgets/app_image_view.dart';
 import '../../data/models/inventory_item_model.dart';
+import '../../data/models/lease_model.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
@@ -49,14 +50,16 @@ class ItemDetailHistoryScreen extends StatelessWidget {
       ),
       body: BlocBuilder<LeaseCubit, LeaseState>(
         builder: (context, leaseState) {
-          final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : [];
+          final List<LeaseModel> allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : [];
           final itemLeases = allLeases.where((l) => l.itemId == item.id).toList();
 
           final totalRevenue = itemLeases
               .where((l) => l.status == 'returned')
               .fold(0.0, (sum, l) => sum + l.netRentTotal);
 
-          final activeCount = itemLeases.where((l) => l.status == 'active').length;
+          final activeCount = itemLeases
+              .where((l) => l.status == 'active')
+              .fold<int>(0, (sum, l) => sum + l.quantity);
           final availableCount = (item.totalQuantity - activeCount).clamp(0, item.totalQuantity);
 
           return SingleChildScrollView(
@@ -241,8 +244,8 @@ class ItemDetailHistoryScreen extends StatelessWidget {
                             ),
                           );
                         },
-                  icon: const Icon(Icons.send_rounded, size: 18),
-                  label: Text(item.availableQuantity > 0 ? 'Rent Out / Dispatch This Item' : 'All Units Currently Leased'),
+                  icon: const Icon(Icons.send_rounded, size: 18,color: Colors.white),
+                  label: Text(item.availableQuantity > 0 ? 'Rent Out / Dispatch This Item' : 'All Units Currently Leased',style: TextStyle(color: Colors.white),),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     minimumSize: const Size.fromHeight(48),
@@ -296,13 +299,35 @@ class ItemDetailHistoryScreen extends StatelessWidget {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  lease.customer?.name ?? 'Client',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      lease.customer?.name ?? 'Client',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                                      ),
+                                    ),
+                                    if (lease.quantity > 1) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          '${lease.quantity} pcs',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
