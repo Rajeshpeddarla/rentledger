@@ -35,6 +35,8 @@ class DiscountModel extends Equatable {
 
   bool get isMaxUsesReached => maxUses != null && usedCount >= maxUses!;
 
+  String get discountText => discountType == 'percentage' ? '${discountValue.toInt()}% Off' : 'Flat Off';
+
   bool matchesItem({required String? itemId, int durationDays = 1}) {
     if (!isActive) return false;
     if (isExpired) return false;

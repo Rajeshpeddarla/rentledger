@@ -241,13 +241,26 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
   void _handleSubmit() async {
     if (_isSignInMode) {
       if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please enter your email and password.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.white, size: 20),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Please enter your email and password.',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
             ),
-            backgroundColor: AppColors.errorRed,
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.red.shade700,
+            margin: const EdgeInsets.all(16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
           ),
         );
         return;
@@ -265,14 +278,6 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
             country: _selectedCountry,
           );
     }
-
-    if (!mounted) return;
-    final state = context.read<StoreCubit>().state;
-    if (state is StoreLoaded) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainBottomNavScreen()),
-      );
-    }
   }
 
   @override
@@ -282,245 +287,283 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(
-                      Icons.storefront,
-                      size: 32,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    _isSignInMode ? 'Welcome Back' : 'Set Up Your Store',
-                    style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _isSignInMode
-                        ? 'Sign in with your linked account to restore all your cloud rental data.'
-                        : 'Start tracking rentals, security deposits, and condition receipts in seconds.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: isDark
-                              ? AppColors.darkOnSurfaceVariant
-                              : AppColors.lightOnSurfaceVariant,
-                        ),
-                  ),
-                  const SizedBox(height: 32),
-                  if (!_isSignInMode) ...[
-                    Text(
-                      'Business / Store Name',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        hintText: 'e.g. Apex Camera & Equipment Rentals',
-                        prefixIcon: Icon(Icons.business),
+      body: BlocListener<StoreCubit, StoreState>(
+        listener: (context, state) {
+          if (state is StoreError) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            String msg = state.message;
+            if (msg.contains('Invalid login credentials') || msg.contains('invalid_credentials')) {
+              msg = 'Invalid email or wrong password. Please try again.';
+            } else if (msg.contains('Sign in failed:')) {
+              msg = msg.replaceFirst('Sign in failed:', '').trim();
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        msg,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                       ),
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) {
-                          return 'Please enter your store name';
-                        }
-                        return null;
-                      },
+                    ),
+                  ],
+                ),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: Colors.red.shade700,
+                margin: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          } else if (state is StoreLoaded) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const MainBottomNavScreen()),
+            );
+          }
+        },
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(
+                        Icons.storefront,
+                        size: 32,
+                        color: Colors.white,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      'Store Country / Location',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      _isSignInMode ? 'Welcome Back' : 'Set Up Your Store',
+                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                          ),
                     ),
                     const SizedBox(height: 8),
-
-                    // Custom Bottom Sheet Trigger Card Field
-                    InkWell(
-                      onTap: _showCountryPickerBottomSheet,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkCard : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                    Text(
+                      _isSignInMode
+                          ? 'Sign in with your linked account to restore all your cloud rental data.'
+                          : 'Start tracking rentals, security deposits, and condition receipts in seconds.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: isDark
+                                ? AppColors.darkOnSurfaceVariant
+                                : AppColors.lightOnSurfaceVariant,
                           ),
+                    ),
+                    const SizedBox(height: 32),
+                    if (!_isSignInMode) ...[
+                      Text(
+                        'Business / Store Name',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. Apex Camera & Equipment Rentals',
+                          prefixIcon: Icon(Icons.business),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please enter your store name';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Store Country / Location',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Custom Bottom Sheet Trigger Card Field
+                      InkWell(
+                        onTap: _showCountryPickerBottomSheet,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isDark ? AppColors.darkCard : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  selectedCountryInfo.flag,
+                                  style: const TextStyle(fontSize: 20),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      selectedCountryInfo.name,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Default Currency: ${selectedCountryInfo.symbol} (${selectedCountryInfo.code})',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.unfold_more_rounded,
+                                color: isDark ? AppColors.primaryLight : AppColors.primary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppColors.primaryLight : AppColors.primary).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
                           children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                selectedCountryInfo.flag,
-                                style: const TextStyle(fontSize: 20),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
+                            Icon(Icons.info_outline, size: 16, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                            const SizedBox(width: 8),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    selectedCountryInfo.name,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Default Currency: ${selectedCountryInfo.symbol} (${selectedCountryInfo.code})',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                                    ),
-                                  ),
-                                ],
+                              child: Text(
+                                'Currency auto-set to ${selectedCountryInfo.symbol} based on ${selectedCountryInfo.name} location.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                ),
                               ),
-                            ),
-                            Icon(
-                              Icons.unfold_more_rounded,
-                              color: isDark ? AppColors.primaryLight : AppColors.primary,
                             ),
                           ],
                         ),
                       ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: (isDark ? AppColors.primaryLight : AppColors.primary).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
+                    ] else ...[
+                      Text(
+                        'Email Address',
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline, size: 16, color: isDark ? AppColors.primaryLight : AppColors.primary),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Currency auto-set to ${selectedCountryInfo.symbol} based on ${selectedCountryInfo.name} location.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? AppColors.primaryLight : AppColors.primary,
-                              ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          hintText: 'owner@store.com',
+                          prefixIcon: Icon(Icons.email_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Password',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
+                          hintText: '••••••••',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                              size: 20,
                             ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ] else ...[
-                    Text(
-                      'Email Address',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        hintText: 'owner@store.com',
-                        prefixIcon: Icon(Icons.email_outlined),
-                      ),
+                    ],
+                    const SizedBox(height: 32),
+                    BlocBuilder<StoreCubit, StoreState>(
+                      builder: (context, state) {
+                        final isLoading = state is StoreLoading;
+                        return ElevatedButton(
+                          onPressed: isLoading ? null : _handleSubmit,
+                          child: isLoading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(_isSignInMode ? 'Sign In & Restore' : 'Get Started Now'),
+                                    const SizedBox(width: 8),
+                                    const Icon(Icons.arrow_forward, size: 18),
+                                  ],
+                                ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 20),
-                    Text(
-                      'Password',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      decoration: InputDecoration(
-                        hintText: '••••••••',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                            size: 20,
+                    Center(
+                      child: TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _isSignInMode = !_isSignInMode;
+                          });
+                        },
+                        child: Text(
+                          _isSignInMode
+                              ? 'New to RentLedger? Set up a new store'
+                              : 'Already have a Pro account? Sign In',
+                          style: TextStyle(
+                            color: isDark ? AppColors.primaryLight : AppColors.primary,
+                            fontWeight: FontWeight.w600,
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
                         ),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 32),
-                  BlocBuilder<StoreCubit, StoreState>(
-                    builder: (context, state) {
-                      final isLoading = state is StoreLoading;
-                      return ElevatedButton(
-                        onPressed: isLoading ? null : _handleSubmit,
-                        child: isLoading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(_isSignInMode ? 'Sign In & Restore' : 'Get Started Now'),
-                                  const SizedBox(width: 8),
-                                  const Icon(Icons.arrow_forward, size: 18),
-                                ],
-                              ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  Center(
-                    child: TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _isSignInMode = !_isSignInMode;
-                        });
-                      },
-                      child: Text(
-                        _isSignInMode
-                            ? 'New to RentLedger? Set up a new store'
-                            : 'Already have a Pro account? Sign In',
-                        style: TextStyle(
-                          color: isDark ? AppColors.primaryLight : AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

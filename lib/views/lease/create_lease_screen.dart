@@ -7,6 +7,7 @@ import '../../core/config/app_theme.dart';
 import '../../core/services/admob_service.dart';
 import '../../core/services/pdf_receipt_service.dart';
 import '../../core/services/r2_storage_service.dart';
+import '../../core/utils/rate_calculator.dart';
 import '../../core/utils/uuid_generator.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/inventory_item_model.dart';
@@ -22,6 +23,16 @@ import '../../viewmodels/lease/lease_cubit.dart';
 import '../profile/subscription_paywall_screen.dart';
 import 'in_app_camera_screen.dart';
 
+class LeaseItemQuantity {
+  final InventoryItemModel item;
+  int pieces;
+
+  LeaseItemQuantity({required this.item, this.pieces = 1});
+
+  double get totalDailyRate => item.rateDaily * pieces;
+  double get totalDepositExpected => item.depositAmount * pieces;
+}
+
 class CreateLeaseScreen extends StatefulWidget {
   final bool isPro;
   final InventoryItemModel? preSelectedItem;
@@ -33,7 +44,7 @@ class CreateLeaseScreen extends StatefulWidget {
 }
 
 class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
-  InventoryItemModel? _selectedItem;
+  final List<LeaseItemQuantity> _selectedLeaseItems = [];
 
   DateTime _startTime = DateTime.now();
   DateTime _expectedEndTime = DateTime.now().add(const Duration(days: 1));
@@ -54,12 +65,34 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   bool _isSaving = false;
   bool _hasConflict = false;
 
+  double get totalExpectedDeposit =>
+      _selectedLeaseItems.fold(0.0, (sum, i) => sum + i.totalDepositExpected);
+
+  double get totalDailyRate =>
+      _selectedLeaseItems.fold(0.0, (sum, i) => sum + i.totalDailyRate);
+
+  int get totalPiecesLeased =>
+      _selectedLeaseItems.fold(0, (sum, i) => sum + i.pieces);
+
+  String _formatDuration(Duration duration) {
+    final days = duration.inDays;
+    final hours = duration.inHours % 24;
+    final minutes = duration.inMinutes % 60;
+
+    final List<String> parts = [];
+    if (days > 0) parts.add('$days Day${days > 1 ? "s" : ""}');
+    if (hours > 0) parts.add('$hours Hr${hours > 1 ? "s" : ""}');
+    if (minutes > 0 || parts.isEmpty) parts.add('$minutes Min${minutes > 1 ? "s" : ""}');
+
+    return parts.join(', ');
+  }
+
   @override
   void initState() {
     super.initState();
-    _selectedItem = widget.preSelectedItem;
-    if (_selectedItem != null) {
-      _depositPaidController.text = _selectedItem!.depositAmount.toStringAsFixed(0);
+    if (widget.preSelectedItem != null) {
+      _selectedLeaseItems.add(LeaseItemQuantity(item: widget.preSelectedItem!, pieces: 1));
+      _depositPaidController.text = totalExpectedDeposit.toStringAsFixed(0);
     }
     _validateConflict();
     _retrieveLostData();
@@ -92,17 +125,85 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
     super.dispose();
   }
 
+  Future<void> _selectStartDateTime() async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: _startTime,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 180)),
+    );
+    if (pickedDate == null) return;
+
+    if (!mounted) return;
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_startTime),
+    );
+
+    final selectedTime = pickedTime ?? TimeOfDay.fromDateTime(_startTime);
+
+    setState(() {
+      _startTime = DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        selectedTime.hour,
+        selectedTime.minute,
+      );
+      if (_expectedEndTime.isBefore(_startTime)) {
+        _expectedEndTime = _startTime.add(const Duration(days: 1));
+      }
+    });
+    _validateConflict();
+  }
+
+  Future<void> _selectEndDateTime() async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: _expectedEndTime.isBefore(_startTime) ? _startTime : _expectedEndTime,
+      firstDate: _startTime,
+      lastDate: DateTime.now().add(const Duration(days: 180)),
+    );
+    if (pickedDate == null) return;
+
+    if (!mounted) return;
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_expectedEndTime),
+    );
+
+    final selectedTime = pickedTime ?? TimeOfDay.fromDateTime(_expectedEndTime);
+
+    setState(() {
+      _expectedEndTime = DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        selectedTime.hour,
+        selectedTime.minute,
+      );
+    });
+    _validateConflict();
+  }
+
   Future<void> _validateConflict() async {
-    if (_selectedItem == null) return;
-    final hasConflict = await context.read<LeaseCubit>().checkDateConflict(
-          itemId: _selectedItem!.id,
-          startTime: _startTime,
-          expectedEndTime: _expectedEndTime,
-          totalQuantity: _selectedItem!.totalQuantity,
-        );
+    if (_selectedLeaseItems.isEmpty) return;
+    bool conflictFound = false;
+    for (final line in _selectedLeaseItems) {
+      final hasConflict = await context.read<LeaseCubit>().checkDateConflict(
+            itemId: line.item.id,
+            startTime: _startTime,
+            expectedEndTime: _expectedEndTime,
+            totalQuantity: line.item.totalQuantity,
+          );
+      if (hasConflict) {
+        conflictFound = true;
+        break;
+      }
+    }
     if (mounted) {
       setState(() {
-        _hasConflict = hasConflict;
+        _hasConflict = conflictFound;
       });
     }
   }
@@ -365,7 +466,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
     setState(() {
       _depositPaymentType = type;
       if (type == 'full') {
-        _depositPaidController.text = (_selectedItem?.depositAmount ?? 0).toStringAsFixed(0);
+        _depositPaidController.text = totalExpectedDeposit.toStringAsFixed(0);
       } else if (type == 'none') {
         _depositPaidController.text = '0';
       }
@@ -373,11 +474,11 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   }
 
   void _handleDispatch() async {
-    if (_selectedItem == null) {
+    if (_selectedLeaseItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Please select an equipment item to rent out.',
+            'Please select at least one equipment item to rent out.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
           ),
           backgroundColor: AppColors.errorRed,
@@ -404,7 +505,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'All units of this item are booked for the chosen timeline!',
+            'All units of one or more selected items are booked for the chosen timeline!',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
           ),
           backgroundColor: AppColors.errorRed,
@@ -449,42 +550,38 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       final leaseId = UuidGenerator.generateV4();
 
       for (int i = 0; i < _beforePhotos.length; i++) {
-        final file = _beforePhotos[i];
-        String? url;
-        try {
-          url = await R2StorageService.instance.uploadImage(
-            file: file,
-            folder: 'leases/$leaseId',
-            filename: 'before_${i + 1}.webp',
-          );
-        } catch (_) {}
-
-        if (url != null && url.isNotEmpty) {
-          uploadedPhotoUrls.add(url);
-        } else if (file.existsSync()) {
-          uploadedPhotoUrls.add(file.path);
-        }
+        final url = await R2StorageService.instance.uploadImage(
+          file: _beforePhotos[i],
+          folder: 'leases/$leaseId',
+          filename: 'before_${i + 1}.webp',
+        );
+        if (url != null) uploadedPhotoUrls.add(url);
       }
+
+      // Build Multi-Item Summary String for Notes/Receipt
+      final itemsSummary = _selectedLeaseItems.map((li) => '${li.pieces}x ${li.item.name}').join(', ');
+      final primaryItem = _selectedLeaseItems.first.item;
 
       // 3. Create Lease
       final lease = LeaseModel(
         id: leaseId,
         storeId: store.id,
-        itemId: _selectedItem!.id,
+        itemId: primaryItem.id,
         customerId: customer.id,
         startTime: _startTime,
         expectedEndTime: _expectedEndTime,
         beforePhotoUrls: uploadedPhotoUrls,
-        depositExpected: _selectedItem!.depositAmount,
+        depositExpected: totalExpectedDeposit,
         depositPaid: double.tryParse(_depositPaidController.text) ?? 0.0,
         advanceRentPaid: double.tryParse(_advanceRentController.text) ?? 0.0,
         depositPaymentType: _depositPaymentType,
+        returnNotes: 'Leased Equipment Items: $itemsSummary',
         status: _startTime.isAfter(DateTime.now().add(const Duration(hours: 1)))
             ? 'upcoming'
             : 'active',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
-        item: _selectedItem,
+        item: primaryItem,
         customer: customer,
       );
 
@@ -493,10 +590,10 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       final createdLease = await context.read<LeaseCubit>().createLease(
             lease,
             isPro: widget.isPro,
-            totalItemQuantity: _selectedItem!.totalQuantity,
+            totalItemQuantity: primaryItem.totalQuantity,
           );
 
-      // Reload inventory so available quantity immediately decrements (e.g. 5/5 -> 4/5 Available)
+      // Reload inventory so available quantities immediately decrement
       if (mounted) {
         context.read<InventoryCubit>().loadInventory();
       }
@@ -669,11 +766,15 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
             _buildCustomerCard(context, isDark, currency),
             const SizedBox(height: 16),
 
-            // 4. Condition Proof ('Before' Intake Photos)
+            // 4. Financial Summary Calculation Breakdown (New Requested Section)
+            _buildFinancialSummaryCard(context, currency, isDark),
+            const SizedBox(height: 16),
+
+            // 5. Condition Proof ('Before' Intake Photos)
             _buildConditionProofCard(context, isDark),
             const SizedBox(height: 16),
 
-            // 5. Upfront Deposit & Payment Collection
+            // 6. Upfront Deposit & Payment Collection
             _buildUpfrontPaymentCard(context, currency, isDark),
             const SizedBox(height: 24),
 
@@ -721,18 +822,22 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Selected Equipment Item',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+              Expanded(
+                child: Text(
+                  'Selected Equipment (${_selectedLeaseItems.length})',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 6),
               TextButton(
                 onPressed: () => _openItemSelectionModal(context),
                 child: Text(
-                  _selectedItem == null ? 'Select Item' : 'Change',
+                  _selectedLeaseItems.isEmpty ? '+ Add Equipment' : '+ Add More',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -742,56 +847,140 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
               ),
             ],
           ),
-          if (_selectedItem != null) ...[
-            Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
+          const SizedBox(height: 6),
+          if (_selectedLeaseItems.isNotEmpty) ...[
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _selectedLeaseItems.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final line = _selectedLeaseItems[index];
+                return Container(
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
-                    borderRadius: BorderRadius.circular(10),
+                    color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                   ),
-                  child: const Icon(Icons.handyman, size: 28, color: AppColors.primary),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Text(
-                        _selectedItem!.displaySku,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? AppColors.primaryLight : AppColors.primary,
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkCard : Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.handyman, size: 22, color: AppColors.primary),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              line.item.name,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              '${line.item.displaySku} • $currency${line.item.rateDaily.toStringAsFixed(0)}/day • Deposit: $currency${line.item.depositAmount.toStringAsFixed(0)}',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                              style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                            ),
+                          ],
                         ),
                       ),
-                      Text(
-                        _selectedItem!.name,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                        ),
-                      ),
-                      Text(
-                        '$currency${_selectedItem!.rateDaily.toStringAsFixed(0)} / day  •  Deposit: $currency${_selectedItem!.depositAmount.toStringAsFixed(0)}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                        ),
+                      const SizedBox(width: 8),
+
+                      // Pieces Quantity Stepper
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline, size: 20),
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(4),
+                            onPressed: () {
+                              setState(() {
+                                if (line.pieces > 1) {
+                                  line.pieces--;
+                                } else {
+                                  _selectedLeaseItems.removeAt(index);
+                                }
+                                if (_depositPaymentType == 'full') {
+                                  _depositPaidController.text = totalExpectedDeposit.toStringAsFixed(0);
+                                }
+                              });
+                              _validateConflict();
+                            },
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '${line.pieces} Pcs',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline, size: 20),
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(4),
+                            onPressed: () {
+                              setState(() {
+                                if (line.pieces < line.item.availableQuantity) {
+                                  line.pieces++;
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Only ${line.item.availableQuantity} pieces available in depot.')),
+                                  );
+                                }
+                                if (_depositPaymentType == 'full') {
+                                  _depositPaidController.text = totalExpectedDeposit.toStringAsFixed(0);
+                                }
+                              });
+                              _validateConflict();
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ),
-              ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Total $totalPiecesLeased Piece(s)',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Total Deposit: $currency${totalExpectedDeposit.toStringAsFixed(0)}',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                  ),
+                ],
+              ),
             ),
           ] else
             OutlinedButton.icon(
               onPressed: () => _openItemSelectionModal(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Tap to Choose Equipment Item'),
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('Tap to Choose Equipment Items & Pieces'),
             ),
         ],
       ),
@@ -806,6 +995,12 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
     final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
 
     String searchQuery = '';
+
+    // Local state map: itemId -> selected pieces count
+    final Map<String, int> modalPiecesMap = {};
+    for (final line in _selectedLeaseItems) {
+      modalPiecesMap[line.item.id] = line.pieces;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -824,8 +1019,10 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                   it.category.toLowerCase().contains(q);
             }).toList();
 
+            final selectedCount = modalPiecesMap.values.where((v) => v > 0).length;
+
             return Container(
-              height: MediaQuery.of(context).size.height * 0.8,
+              height: MediaQuery.of(context).size.height * 0.82,
               padding: EdgeInsets.only(
                 left: 20,
                 right: 20,
@@ -848,31 +1045,45 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                   const SizedBox(height: 16),
 
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.handyman_outlined, color: AppColors.primary, size: 22),
-                      ),
-                      const SizedBox(width: 12),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
-                            const Text(
-                              'Select Equipment Item',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.handyman_outlined, color: AppColors.primary, size: 22),
                             ),
-                            Text(
-                              'Choose equipment to lease from your inventory fleet',
-                              style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Select Equipment Items',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    'Select items and piece quantities',
+                                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$selectedCount Selected',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
                       ),
                     ],
                   ),
@@ -922,93 +1133,162 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                             separatorBuilder: (context, index) => const SizedBox(height: 10),
                             itemBuilder: (context, index) {
                               final it = filteredItems[index];
+                              final currentPcs = modalPiecesMap[it.id] ?? 0;
+                              final isSelected = currentPcs > 0;
                               final available = it.availableQuantity;
-                              final total = it.totalQuantity;
 
-                              return InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _selectedItem = it;
-                                    _depositPaidController.text = it.depositAmount.toStringAsFixed(0);
-                                  });
-                                  Navigator.pop(modalCtx);
-                                  _validateConflict();
-                                },
-                                borderRadius: BorderRadius.circular(14),
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: isDark ? AppColors.darkCard : Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? (isDark ? AppColors.primaryLight.withValues(alpha: 0.12) : AppColors.primary.withValues(alpha: 0.06))
+                                      : (isDark ? AppColors.darkCard : Colors.white),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isSelected ? AppColors.primary : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                                    width: isSelected ? 1.5 : 1.0,
                                   ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 44,
-                                        height: 44,
-                                        decoration: BoxDecoration(
-                                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: const Icon(Icons.handyman, size: 22, color: AppColors.primary),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                Text(
-                                                  it.displaySku,
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: isDark ? AppColors.primaryLight : AppColors.primary,
-                                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Checkbox(
+                                      value: isSelected,
+                                      activeColor: AppColors.primary,
+                                      onChanged: (val) {
+                                        setModalState(() {
+                                          if (val == true) {
+                                            modalPiecesMap[it.id] = 1;
+                                          } else {
+                                            modalPiecesMap.remove(it.id);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                it.displaySku,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isDark ? AppColors.primaryLight : AppColors.primary,
                                                 ),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: available > 0
-                                                        ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
-                                                        : (isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6)),
-                                                    borderRadius: BorderRadius.circular(4),
-                                                  ),
-                                                  child: Text(
-                                                    '$available/$total Available',
-                                                    style: TextStyle(
-                                                      fontSize: 9,
-                                                      fontWeight: FontWeight.bold,
-                                                      color: available > 0 ? AppColors.primaryLight : AppColors.errorRed,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              it.name,
-                                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                                            ),
-                                            Text(
-                                              '$currency${it.rateDaily.toStringAsFixed(0)} / day  •  Deposit: $currency${it.depositAmount.toStringAsFixed(0)}',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
                                               ),
+                                              Text(
+                                                '$available/${it.totalQuantity} Available',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: available > 0 ? AppColors.primaryLight : AppColors.errorRed,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            it.name,
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                          ),
+                                          Text(
+                                            '$currency${it.rateDaily.toStringAsFixed(0)}/day • Deposit: $currency${it.depositAmount.toStringAsFixed(0)}',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
                                             ),
-                                          ],
-                                        ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    if (isSelected) ...[
+                                      const SizedBox(width: 8),
+                                      // Pieces Quantity Stepper inside Modal
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.remove_circle, color: AppColors.primary, size: 22),
+                                            constraints: const BoxConstraints(),
+                                            padding: const EdgeInsets.all(4),
+                                            onPressed: () {
+                                              setModalState(() {
+                                                if (currentPcs > 1) {
+                                                  modalPiecesMap[it.id] = currentPcs - 1;
+                                                } else {
+                                                  modalPiecesMap.remove(it.id);
+                                                }
+                                              });
+                                            },
+                                          ),
+                                          Text(
+                                            '$currentPcs Pcs',
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.add_circle, color: AppColors.primary, size: 22),
+                                            constraints: const BoxConstraints(),
+                                            padding: const EdgeInsets.all(4),
+                                            onPressed: () {
+                                              if (currentPcs < available) {
+                                                setModalState(() {
+                                                  modalPiecesMap[it.id] = currentPcs + 1;
+                                                });
+                                              } else {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Max $available pieces available in depot.')),
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ],
                                       ),
                                     ],
-                                  ),
+                                  ],
                                 ),
                               );
                             },
                           ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedLeaseItems.clear();
+                          modalPiecesMap.forEach((id, pcs) {
+                            if (pcs > 0) {
+                              final item = items.where((i) => i.id == id).firstOrNull;
+                              if (item != null) {
+                                _selectedLeaseItems.add(LeaseItemQuantity(item: item, pieces: pcs));
+                              }
+                            }
+                          });
+
+                          if (_depositPaymentType == 'full') {
+                            _depositPaidController.text = totalExpectedDeposit.toStringAsFixed(0);
+                          }
+                        });
+                        Navigator.pop(modalCtx);
+                        _validateConflict();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(
+                        'Confirm $selectedCount Selected Item(s)',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1021,8 +1301,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
 
   Widget _buildTimelineCard(BuildContext context, bool isDark) {
     final duration = _expectedEndTime.difference(_startTime);
-    final days = duration.inDays;
-    final hours = duration.inHours % 24;
+    final durationText = _formatDuration(duration);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1064,7 +1343,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  '$days Day(s), $hours Hr(s)',
+                  durationText,
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
@@ -1079,20 +1358,8 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
             children: [
               Expanded(
                 child: InkWell(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _startTime,
-                      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-                      lastDate: DateTime.now().add(const Duration(days: 180)),
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        _startTime = DateTime(picked.year, picked.month, picked.day, _startTime.hour, _startTime.minute);
-                      });
-                      _validateConflict();
-                    }
-                  },
+                  onTap: _selectStartDateTime,
+                  borderRadius: BorderRadius.circular(8),
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
@@ -1105,7 +1372,13 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                         Text('Start & Handover', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
                         const SizedBox(height: 2),
                         Text(DateFormat('dd MMM yyyy').format(_startTime), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        Text(DateFormat('hh:mm a').format(_startTime), style: TextStyle(fontSize: 11, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                        Row(
+                          children: [
+                            Text(DateFormat('hh:mm a').format(_startTime), style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                            const SizedBox(width: 4),
+                            Icon(Icons.edit, size: 12, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -1114,20 +1387,8 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: InkWell(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _expectedEndTime,
-                      firstDate: _startTime,
-                      lastDate: DateTime.now().add(const Duration(days: 180)),
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        _expectedEndTime = DateTime(picked.year, picked.month, picked.day, _expectedEndTime.hour, _expectedEndTime.minute);
-                      });
-                      _validateConflict();
-                    }
-                  },
+                  onTap: _selectEndDateTime,
+                  borderRadius: BorderRadius.circular(8),
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
@@ -1140,7 +1401,13 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                         Text('Expected Return', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
                         const SizedBox(height: 2),
                         Text(DateFormat('dd MMM yyyy').format(_expectedEndTime), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        Text(DateFormat('hh:mm a').format(_expectedEndTime), style: const TextStyle(fontSize: 11, color: AppColors.tertiaryAmber)),
+                        Row(
+                          children: [
+                            Text(DateFormat('hh:mm a').format(_expectedEndTime), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber)),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.edit, size: 12, color: AppColors.tertiaryAmber),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -1326,6 +1593,209 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFinancialSummaryCard(BuildContext context, String currency, bool isDark) {
+    double totalEstimatedRent = 0.0;
+
+    for (final line in _selectedLeaseItems) {
+      final itemRent = RateCalculator.calculateReturnRent(
+        startTime: _startTime,
+        actualReturnTime: _expectedEndTime,
+        rateHourly: line.item.rateHourly,
+        rateDaily: line.item.rateDaily,
+        rateWeekly: line.item.rateWeekly,
+        rateMonthly: line.item.rateMonthly,
+      );
+      totalEstimatedRent += (itemRent * line.pieces);
+    }
+
+    final advanceRentPaid = double.tryParse(_advanceRentController.text) ?? 0.0;
+    final estimatedRentBalance = (totalEstimatedRent - advanceRentPaid) < 0
+        ? 0.0
+        : (totalEstimatedRent - advanceRentPaid);
+
+    final depositPaid = double.tryParse(_depositPaidController.text) ?? 0.0;
+    final depositOutstanding = (totalExpectedDeposit - depositPaid) < 0
+        ? 0.0
+        : (totalExpectedDeposit - depositPaid);
+
+    final duration = _expectedEndTime.difference(_startTime);
+    final breakdownText = _formatDuration(duration);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(Icons.account_balance_wallet_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Financial Summary',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Duration: $breakdownText',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // 2 Side-by-Side Cards (Rental Estimate & Security Deposit)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Card 1: Rental Estimate
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
+                        ),
+                        child: Text(
+                          'Rental Estimate',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text('Estimated rental charges', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
+                                Text('$currency${totalEstimatedRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text('Advance rent received', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
+                                Text('$currency${advanceRentPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text('Estimated rent balance', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary))),
+                                Text('$currency${estimatedRentBalance.toStringAsFixed(2)}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Card 2: Security Deposit
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
+                        ),
+                        child: Text(
+                          'Security Deposit',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text('Deposit required', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
+                                Text('$currency${totalExpectedDeposit.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text('Deposit received', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary))),
+                                Text('$currency${depositPaid.toStringAsFixed(2)}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Divider(height: 1, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text('Deposit outstanding', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy))),
+                                Text('$currency${depositOutstanding.toStringAsFixed(2)}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.slateNavy)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -1687,7 +2157,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   }
 
   Widget _buildUpfrontPaymentCard(BuildContext context, String currency, bool isDark) {
-    final expectedDeposit = _selectedItem?.depositAmount ?? 0.0;
+    final expectedDeposit = totalExpectedDeposit;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1761,6 +2231,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                     labelText: 'Advance Rent ($currency)',
                     prefixText: '$currency ',
                   ),
+                  onChanged: (_) => setState(() {}),
                 ),
               ),
             ],

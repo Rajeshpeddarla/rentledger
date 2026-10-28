@@ -41,6 +41,9 @@ class LeaseLoaded extends LeaseState {
   List<LeaseModel> get dueTodayLeases =>
       allLeases.where((l) => l.isDueToday).toList();
 
+  List<LeaseModel> get returnedLeases =>
+      allLeases.where((l) => l.status == 'returned').toList();
+
   List<LeaseModel> get leasesOnSelectedDate {
     return allLeases.where((l) {
       final s = l.startTime;

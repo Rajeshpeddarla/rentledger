@@ -29,6 +29,8 @@ class CustomerModel extends Equatable {
 
   bool get isRepeatCustomer => totalLeasesCount > 1;
 
+  String get shortId => id.length > 6 ? id.substring(0, 6).toUpperCase() : id.toUpperCase();
+
   /// Monetary value of loyalty points (10 points = 1 unit currency)
   double get loyaltyMonetaryValue => double.parse((loyaltyPoints * 0.10).toStringAsFixed(2));
 

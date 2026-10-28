@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/config/app_theme.dart';
 import '../../data/models/lease_model.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
@@ -57,11 +58,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _buildTelemetryGrid(context, isDark),
               const SizedBox(height: 20),
 
-              // 4. Mini Calendar Week Strip
+              // 4. Mini Calendar Week Strip (Weekly Rental Status)
               _buildWeeklyRhythmStrip(context, isDark),
               const SizedBox(height: 20),
 
-              // 5. Quick Attention List (Due Today & Overdue Leases)
+              // 5. Immediate Action List (Due Today & Overdue Leases)
               _buildImmediateAttentionSection(context, isDark),
               const SizedBox(height: 24),
             ],
@@ -307,20 +308,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildTelemetryGrid(BuildContext context, bool isDark) {
+    final storeState = context.watch<StoreCubit>().state;
+    final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
+
     final inventoryState = context.watch<InventoryCubit>().state;
-    final totalAssets = inventoryState is InventoryLoaded ? inventoryState.totalStockCount : 5;
+    final totalAssets = inventoryState is InventoryLoaded ? inventoryState.allItems.length : 0;
+    final availableAssets = inventoryState is InventoryLoaded ? inventoryState.availableStockCount : 0;
+    final rentedAssets = inventoryState is InventoryLoaded ? inventoryState.rentedStockCount : 0;
 
     final leaseState = context.watch<LeaseCubit>().state;
     final activeLeasesCount = leaseState is LeaseLoaded ? leaseState.activeLeases.length : 0;
     final overdueCount = leaseState is LeaseLoaded ? leaseState.overdueLeases.length : 0;
-    final returnedCount = leaseState is LeaseLoaded
-        ? leaseState.allLeases.where((l) => l.status == 'returned').length
-        : 0;
-
-    final rentedAssets = inventoryState is InventoryLoaded
-        ? (inventoryState.rentedStockCount > 0 ? inventoryState.rentedStockCount : activeLeasesCount)
-        : activeLeasesCount;
-    final availableAssets = (totalAssets - rentedAssets).clamp(0, totalAssets);
+    final depositsHeld = leaseState is LeaseLoaded ? leaseState.totalDepositsHeld : 0.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -329,7 +328,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Operations',
+              'Operations Telemetry',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -394,14 +393,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               isDark: isDark,
               isAlert: overdueCount > 0,
             ),
-            // Card 4: Completed Returns
+            // Card 4: Deposits Held
             _buildTelemetryCard(
-              title: 'Completed Returns',
-              value: '$returnedCount',
-              subtitle: 'Returned to fleet',
-              icon: Icons.assignment_turned_in_outlined,
-              iconColor: AppColors.primaryLight,
-              iconBg: isDark ? AppColors.darkSurfaceLow : const Color(0xFFD1F2D9),
+              title: 'Deposits Held',
+              value: '$currency${NumberFormat('#,##0').format(depositsHeld)}',
+              subtitle: '100% Escrowed',
+              icon: Icons.lock_clock_outlined,
+              iconColor: AppColors.primary,
+              iconBg: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
               isDark: isDark,
             ),
           ],
@@ -508,7 +507,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final leaseState = context.watch<LeaseCubit>().state;
     final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
 
-    // Find leases for the currently selected rhythm date
     final selectedStart = DateTime(_selectedRhythmDate.year, _selectedRhythmDate.month, _selectedRhythmDate.day, 0, 0, 0);
     final selectedEnd = DateTime(_selectedRhythmDate.year, _selectedRhythmDate.month, _selectedRhythmDate.day, 23, 59, 59);
     final selectedDayLeases = allLeases.where((l) {
@@ -539,7 +537,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Icon(Icons.date_range, size: 16, color: isDark ? AppColors.primaryLight : AppColors.primary),
                   const SizedBox(width: 6),
                   Text(
-                    'Weekly Rental Rhythm',
+                    'Weekly Rental Status',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -592,9 +590,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   decoration: BoxDecoration(
                     color: isSelected
                         ? AppColors.primary
-                        : (isToday
-                            ? (isDark ? const Color(0xFF1B3B2B) : const Color(0xFFD1FAE5))
-                            : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow)),
+                        : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow),
                     borderRadius: BorderRadius.circular(10),
                     border: isToday && !isSelected
                         ? Border.all(color: AppColors.primary, width: 1.5)
@@ -710,6 +706,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? 'RETURNED'
         : (isOverdue ? 'OVERDUE' : lease.status.toUpperCase());
 
+    String itemName = lease.item?.name ?? 'Equipment Item';
+    if (lease.returnNotes != null && lease.returnNotes!.contains('Leased Equipment Items:')) {
+      final noteStr = lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
+      if (noteStr.isNotEmpty) itemName = noteStr;
+    }
+
     return InkWell(
       onTap: () {
         Navigator.of(context).push(
@@ -750,7 +752,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       Flexible(
                         child: Text(
-                          lease.item?.name ?? 'Equipment Item',
+                          itemName,
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -800,6 +802,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildImmediateAttentionSection(BuildContext context, bool isDark) {
+    final storeState = context.watch<StoreCubit>().state;
+    final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
+
     return BlocBuilder<LeaseCubit, LeaseState>(
       builder: (context, state) {
         if (state is! LeaseLoaded) {
@@ -900,6 +905,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 itemBuilder: (context, index) {
                   final lease = uniqueLeases[index];
                   final isOverdue = lease.isOverdue;
+                  final phone = lease.customer?.phone.trim() ?? '';
+
+                  String itemName = lease.item?.name ?? 'Equipment Item';
+                  if (lease.returnNotes != null && lease.returnNotes!.contains('Leased Equipment Items:')) {
+                    final noteStr = lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
+                    if (noteStr.isNotEmpty) itemName = noteStr;
+                  }
 
                   return Container(
                     padding: const EdgeInsets.all(12),
@@ -936,7 +948,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     children: [
                                       Flexible(
                                         child: Text(
-                                          lease.item?.name ?? 'Equipment Item',
+                                          itemName,
                                           style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w700,
@@ -966,7 +978,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    '${lease.customer?.name ?? "Customer"} • ${lease.customer?.phone ?? "-"}',
+                                    '${lease.customer?.name ?? "Customer"} • ${phone.isNotEmpty ? phone : "-"}',
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
@@ -982,28 +994,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'Deposit held: ₹${lease.depositPaid.toStringAsFixed(0)}',
+                              'Deposit held: $currency${lease.depositPaid.toStringAsFixed(0)}',
                               style: TextStyle(
-                                fontSize: 11,
+                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
                               ),
                             ),
-                            ElevatedButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => TakeBackSettlementScreen(lease: lease),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (phone.isNotEmpty) ...[
+                                  IconButton(
+                                    icon: const Icon(Icons.phone_forwarded, size: 18, color: AppColors.primary),
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.all(6),
+                                    tooltip: 'Call ${lease.customer?.name ?? "Customer"}',
+                                    onPressed: () async {
+                                      final uri = Uri.parse('tel:$phone');
+                                      if (await canLaunchUrl(uri)) {
+                                        await launchUrl(uri);
+                                      } else {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Cannot launch phone call to $phone')),
+                                          );
+                                        }
+                                      }
+                                    },
                                   ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isOverdue ? AppColors.errorRed : AppColors.primary,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: const Text('Settle / Take Back', style: TextStyle(fontSize: 11)),
+                                  const SizedBox(width: 6),
+                                ],
+                                ElevatedButton(
+                                  onPressed: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => TakeBackSettlementScreen(lease: lease),
+                                      ),
+                                    );
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isOverdue ? AppColors.errorRed : AppColors.primary,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text('Settle / Take Back', style: TextStyle(fontSize: 11)),
+                                ),
+                              ],
                             ),
                           ],
                         ),

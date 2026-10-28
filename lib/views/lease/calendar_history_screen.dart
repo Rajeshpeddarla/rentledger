@@ -365,6 +365,12 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
                           final isOverdue = lease.isOverdue;
                           final isReturned = lease.status == 'returned';
 
+                          String itemName = lease.item?.name ?? 'Equipment Item';
+                          if (lease.returnNotes != null && lease.returnNotes!.contains('Leased Equipment Items:')) {
+                            final noteStr = lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
+                            if (noteStr.isNotEmpty) itemName = noteStr;
+                          }
+
                           return Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -384,7 +390,7 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        lease.item?.name ?? 'Equipment Item',
+                                        itemName,
                                         style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w700,

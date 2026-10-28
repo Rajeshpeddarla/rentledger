@@ -418,7 +418,11 @@ class _CustomerDirectoryScreenState extends State<CustomerDirectoryScreen> {
                         separatorBuilder: (context, index) => const SizedBox(height: 10),
                         itemBuilder: (lCtx, index) {
                           final lease = leases[index];
-                          final itemName = lease.item?.name ?? 'Equipment Item';
+                          String itemName = lease.item?.name ?? 'Equipment Item';
+                          if (lease.returnNotes != null && lease.returnNotes!.contains('Leased Equipment Items:')) {
+                            final noteStr = lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
+                            if (noteStr.isNotEmpty) itemName = noteStr;
+                          }
                           final startDateStr = '${lease.startTime.day}/${lease.startTime.month}/${lease.startTime.year}';
                           final endDateStr = '${lease.expectedEndTime.day}/${lease.expectedEndTime.month}/${lease.expectedEndTime.year}';
 
