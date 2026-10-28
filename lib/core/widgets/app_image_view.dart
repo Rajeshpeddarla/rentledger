@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import '../config/app_theme.dart';
+import '../config/env.dart';
 
 class AppImageView extends StatefulWidget {
   final String? imagePathOrUrl;
@@ -23,13 +24,41 @@ class AppImageView extends StatefulWidget {
     this.enableZoom = false,
   });
 
+  /// Automatically rewrites unconfigured or old R2 URLs to the user's active R2 public domain,
+  /// or falls back to the Edge Function signed-redirect gateway.
+  static String? getEffectiveUrl(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final trimmed = raw.trim();
+
+    if (trimmed.contains('pub-rentledger.r2.dev')) {
+      // 1. If custom/assigned R2 public domain is configured in Env:
+      if (Env.r2PublicDomain != 'https://pub-rentledger.r2.dev' &&
+          Env.r2PublicDomain.trim().isNotEmpty) {
+        final cleanDomain = Env.r2PublicDomain.endsWith('/')
+            ? Env.r2PublicDomain.substring(0, Env.r2PublicDomain.length - 1)
+            : Env.r2PublicDomain;
+        return trimmed.replaceFirst('https://pub-rentledger.r2.dev', cleanDomain);
+      }
+
+      // 2. Gateway fallback: Supabase Edge Function signed GET redirect
+      final idx = trimmed.indexOf('/stores/');
+      if (idx != -1) {
+        final key = trimmed.substring(idx + 1);
+        final baseUrl = Env.supabaseUrl.endsWith('/')
+            ? Env.supabaseUrl.substring(0, Env.supabaseUrl.length - 1)
+            : Env.supabaseUrl;
+        return '$baseUrl/functions/v1/get-r2-upload-url?key=$key';
+      }
+    }
+    return trimmed;
+  }
+
   @override
   State<AppImageView> createState() => _AppImageViewState();
 }
 
 class _AppImageViewState extends State<AppImageView> {
   File? _resolvedFile;
-  bool _checkedLocal = false;
 
   @override
   void initState() {
@@ -81,7 +110,6 @@ class _AppImageViewState extends State<AppImageView> {
     if (mounted) {
       setState(() {
         _resolvedFile = null;
-        _checkedLocal = true;
       });
     }
   }
@@ -169,6 +197,8 @@ class _AppImageViewState extends State<AppImageView> {
       return _clipIfNeeded(fallbackWidget);
     }
 
+    final effectiveUrl = AppImageView.getEffectiveUrl(raw);
+
     // A. Local file was found
     if (_resolvedFile != null && _resolvedFile!.existsSync()) {
       final img = Image.file(
@@ -189,7 +219,7 @@ class _AppImageViewState extends State<AppImageView> {
       return _clipIfNeeded(img);
     }
 
-    // B. Direct local path not found
+    // B. Direct local path on device
     if (!raw.startsWith('http')) {
       final f = File(raw);
       if (f.existsSync()) {
@@ -213,25 +243,41 @@ class _AppImageViewState extends State<AppImageView> {
       return _clipIfNeeded(fallbackWidget);
     }
 
-    // C. Dead placeholder R2 URLs
-    if (raw.contains('pub-rentledger.r2.dev') || raw.contains('.r2.cloudflarestorage.com')) {
-      if (_checkedLocal && _resolvedFile == null) {
-        return _clipIfNeeded(fallbackWidget);
-      }
-    }
-
-    // D. Remote URL
+    // C. Remote URL (R2 CDN or valid Web URL)
+    final displayUrl = effectiveUrl ?? raw;
     final netImg = Image.network(
-      raw,
+      displayUrl,
       width: widget.width,
       height: widget.height,
       fit: widget.fit,
-      errorBuilder: (_, _, _) => fallbackWidget,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          width: widget.width,
+          height: widget.height,
+          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
+          child: Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: isDark ? AppColors.primaryLight : AppColors.primary,
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                    : null,
+              ),
+            ),
+          ),
+        );
+      },
+      errorBuilder: (_, error, _) => fallbackWidget,
     );
+
     if (widget.enableZoom) {
       return _clipIfNeeded(
         GestureDetector(
-          onTap: () => _openZoomDialog(context, NetworkImage(raw)),
+          onTap: () => _openZoomDialog(context, NetworkImage(displayUrl)),
           child: netImg,
         ),
       );

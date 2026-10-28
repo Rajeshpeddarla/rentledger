@@ -88,9 +88,12 @@ class R2StorageService {
       // Bucket not yet created in Supabase dashboard
     }
 
-    // 3. Graceful Local Persistent Storage:
-    // Persist permanently in the device's application documents directory so it is never lost
-    return await _cacheLocally(file, folder, filename) ?? file.path;
+    // 3. Local Cache on Failure:
+    // Safely cache locally so the original file isn't lost, but return null
+    // so callers know cloud upload did NOT succeed and do NOT write a device-local
+    // sandboxed path into the remote cloud database.
+    await _cacheLocally(file, folder, filename);
+    return null;
   }
 
   Future<String?> _cacheLocally(File file, String folder, String filename) async {

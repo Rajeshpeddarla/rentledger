@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { S3Client, PutObjectCommand } from "npm:@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "npm:@aws-sdk/client-s3";
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner";
 
 const s3 = new S3Client({
@@ -14,13 +14,40 @@ const s3 = new S3Client({
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  // Handle GET request to generate a signed download redirect
+  if (req.method === "GET") {
+    try {
+      const url = new URL(req.url);
+      const key = url.searchParams.get("key");
+      if (!key) {
+        return new Response(JSON.stringify({ error: "Missing key parameter" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const command = new GetObjectCommand({
+        Bucket: Deno.env.get("R2_BUCKET_NAME") || "rentledger",
+        Key: key,
+      });
+
+      const signedDownloadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
+      return Response.redirect(signedDownloadUrl, 302);
+    } catch (err) {
+      return new Response(JSON.stringify({ error: String(err) }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   }
 
   try {
@@ -64,7 +91,7 @@ serve(async (req) => {
     });
 
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 60 });
-    const publicDomain = Deno.env.get("R2_PUBLIC_DOMAIN") || "https://pub-rentledger.r2.dev";
+    const publicDomain = Deno.env.get("R2_PUBLIC_DOMAIN") || "https://pub-7303e697bf2540608f24b1b6c05dfdde.r2.dev";
     const publicUrl = `${publicDomain}/${objectKey}`;
 
     return new Response(JSON.stringify({ uploadUrl, publicUrl }), {

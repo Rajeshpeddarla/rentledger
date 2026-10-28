@@ -69,7 +69,13 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     _monthlyController = TextEditingController(text: item != null ? '${item.rateMonthly.toInt()}' : '26400');
 
     _selectedCategory = item?.category ?? 'General';
-    _imageUrl = item?.imageR2Url;
+    final initialImg = item?.imageR2Url;
+    if (initialImg != null && !initialImg.startsWith('http')) {
+      final f = File(initialImg);
+      _imageUrl = f.existsSync() ? initialImg : null;
+    } else {
+      _imageUrl = initialImg;
+    }
 
     if (item != null) {
       _isWeeklyManuallyEdited = true;
@@ -354,7 +360,20 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           folder: 'items',
           filename: filename,
         );
-        _imageUrl = uploadedUrl ?? _pickedImage!.path;
+        if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
+          _imageUrl = uploadedUrl;
+        } else {
+          // Cloud upload failed
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⚠️ Photo upload to Cloudflare R2 failed. Item saved without cloud image.'),
+                backgroundColor: AppColors.errorRed,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
       }
 
       final storeState = storeCubit.state;
