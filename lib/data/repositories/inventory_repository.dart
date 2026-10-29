@@ -32,17 +32,20 @@ class InventoryRepository {
         // Fetch active/reserved lease counts per item in realtime
         final Map<String, int> activeCounts = {};
         final Map<String, int> reservedCounts = {};
-        try {
-          final leasesData = await _client
-              .from('leases')
-              .select('item_id, quantity, status')
-              .eq('store_id', user.id)
-              .or('status.eq.active,status.eq.reserved,status.eq.upcoming');
 
-          for (final row in (leasesData as List)) {
+        try {
+          // 1. Query lease_items table for item-level quantities in multi-item orders
+          final leaseItemsData = await _client
+              .from('lease_items')
+              .select('item_id, quantity, return_status, leases!inner(status)')
+              .eq('store_id', user.id)
+              .or('return_status.eq.available,return_status.eq.active');
+
+          for (final row in (leaseItemsData as List)) {
             final iId = row['item_id'] as String?;
             final qty = (row['quantity'] as num?)?.toInt() ?? 1;
-            final st = row['status'] as String?;
+            final leaseObj = row['leases'] as Map<String, dynamic>?;
+            final st = leaseObj?['status'] as String?;
             if (iId != null) {
               if (st == 'active') {
                 activeCounts[iId] = (activeCounts[iId] ?? 0) + qty;
@@ -51,8 +54,30 @@ class InventoryRepository {
               }
             }
           }
-        } catch (e) {
-          debugPrint('InventoryRepository active lease count error: $e');
+        } catch (_) {
+          // 2. Fallback to leases table if lease_items table is pending or offline
+          try {
+            final leasesData = await _client
+                .from('leases')
+                .select('item_id, quantity, status')
+                .eq('store_id', user.id)
+                .or('status.eq.active,status.eq.reserved,status.eq.upcoming');
+
+            for (final row in (leasesData as List)) {
+              final iId = row['item_id'] as String?;
+              final qty = (row['quantity'] as num?)?.toInt() ?? 1;
+              final st = row['status'] as String?;
+              if (iId != null) {
+                if (st == 'active') {
+                  activeCounts[iId] = (activeCounts[iId] ?? 0) + qty;
+                } else if (st == 'reserved' || st == 'upcoming') {
+                  reservedCounts[iId] = (reservedCounts[iId] ?? 0) + qty;
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('InventoryRepository active lease count error: $e');
+          }
         }
 
         final list = (data as List)

@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/utils/rate_calculator.dart';
+import '../../data/models/lease_item_model.dart';
 import '../../data/models/lease_model.dart';
 import '../../data/models/store_model.dart';
 
@@ -123,33 +124,71 @@ class PdfReceiptService {
     final pdf = pw.Document(theme: pdfTheme);
     final currency = _resolveCurrency(store, pdfTheme);
 
-    final leaseList = (multiItemLeases != null && multiItemLeases.isNotEmpty)
-        ? multiItemLeases
-        : [lease];
-
     final duration = lease.expectedEndTime.difference(lease.startTime);
     final durationText = _formatExactDuration(duration);
     final issueDateStr = _dateOnlyFormat.format(lease.createdAt);
 
+    final List<LeaseItemModel> lineItemsToRender = [];
+    if (lease.leaseItems.isNotEmpty) {
+      lineItemsToRender.addAll(lease.leaseItems);
+    } else if (multiItemLeases != null && multiItemLeases.isNotEmpty) {
+      for (final l in multiItemLeases) {
+        if (l.leaseItems.isNotEmpty) {
+          lineItemsToRender.addAll(l.leaseItems);
+        } else {
+          lineItemsToRender.add(LeaseItemModel(
+            id: l.id,
+            leaseId: l.id,
+            storeId: l.storeId,
+            itemId: l.itemId,
+            quantity: l.quantity,
+            rateHourly: l.item?.rateHourly ?? 0,
+            rateDaily: l.item?.rateDaily ?? 0,
+            rateWeekly: l.item?.rateWeekly ?? 0,
+            rateMonthly: l.item?.rateMonthly ?? 0,
+            depositAmount: l.depositExpected,
+            lineCalculatedRent: l.calculatedRent,
+            createdAt: l.createdAt,
+            updatedAt: l.updatedAt,
+            item: l.item,
+          ));
+        }
+      }
+    } else {
+      lineItemsToRender.add(LeaseItemModel(
+        id: lease.id,
+        leaseId: lease.id,
+        storeId: lease.storeId,
+        itemId: lease.itemId,
+        quantity: lease.quantity,
+        rateHourly: lease.item?.rateHourly ?? 0,
+        rateDaily: lease.item?.rateDaily ?? 0,
+        rateWeekly: lease.item?.rateWeekly ?? 0,
+        rateMonthly: lease.item?.rateMonthly ?? 0,
+        depositAmount: lease.depositExpected,
+        lineCalculatedRent: lease.calculatedRent,
+        createdAt: lease.createdAt,
+        updatedAt: lease.updatedAt,
+        item: lease.item,
+      ));
+    }
+
     double totalGrandEstimatedRent = 0.0;
     double totalGrandExpectedDeposit = 0.0;
 
-    for (final l in leaseList) {
-      final item = l.item;
-      final b = item != null
-          ? RateCalculator.getReturnRentBreakdown(
-              startTime: l.startTime,
-              actualReturnTime: l.expectedEndTime,
-              rateHourly: item.rateHourly,
-              rateDaily: item.rateDaily,
-              rateWeekly: item.rateWeekly,
-              rateMonthly: item.rateMonthly,
-              currency: currency,
-            )
-          : null;
-      final unitRent = b?.totalRent ?? 0.0;
-      totalGrandEstimatedRent += (unitRent * l.quantity);
-      totalGrandExpectedDeposit += l.depositExpected;
+    for (final line in lineItemsToRender) {
+      final b = RateCalculator.getReturnRentBreakdown(
+        startTime: lease.startTime,
+        actualReturnTime: lease.expectedEndTime,
+        rateHourly: line.rateHourly,
+        rateDaily: line.rateDaily,
+        rateWeekly: line.rateWeekly,
+        rateMonthly: line.rateMonthly,
+        currency: currency,
+      );
+      final unitRent = b.totalRent;
+      totalGrandEstimatedRent += (unitRent * line.quantity);
+      totalGrandExpectedDeposit += (line.depositAmount * line.quantity);
     }
 
     pdf.addPage(
@@ -369,7 +408,7 @@ class PdfReceiptService {
             pw.SizedBox(height: 16),
 
             // Rented Equipment Items Table
-            pw.Text('RENTED EQUIPMENT ITEMS (${leaseList.length})', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
+            pw.Text('RENTED EQUIPMENT ITEMS (${lineItemsToRender.length})', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
             pw.SizedBox(height: 6),
             pw.Container(
               decoration: pw.BoxDecoration(
@@ -404,30 +443,27 @@ class PdfReceiptService {
                       ),
                     ],
                   ),
-                  ...leaseList.expand((itemLease) {
-                    final itemDuration = itemLease.expectedEndTime.difference(itemLease.startTime);
+                  ...lineItemsToRender.expand((line) {
+                    final itemDuration = lease.expectedEndTime.difference(lease.startTime);
                     final itemDurationText = _formatExactDuration(itemDuration);
-                    final item = itemLease.item;
-                    final itemBreakdown = item != null
-                        ? RateCalculator.getReturnRentBreakdown(
-                            startTime: itemLease.startTime,
-                            actualReturnTime: itemLease.expectedEndTime,
-                            rateHourly: item.rateHourly,
-                            rateDaily: item.rateDaily,
-                            rateWeekly: item.rateWeekly,
-                            rateMonthly: item.rateMonthly,
-                            currency: currency,
-                          )
-                        : null;
+                    final itemBreakdown = RateCalculator.getReturnRentBreakdown(
+                      startTime: lease.startTime,
+                      actualReturnTime: lease.expectedEndTime,
+                      rateHourly: line.rateHourly,
+                      rateDaily: line.rateDaily,
+                      rateWeekly: line.rateWeekly,
+                      rateMonthly: line.rateMonthly,
+                      currency: currency,
+                    );
 
-                    final singleUnitCost = itemBreakdown?.totalRent ?? 0.0;
-                    final itemSubtotalCost = singleUnitCost * itemLease.quantity;
+                    final singleUnitCost = itemBreakdown.totalRent;
+                    final itemSubtotalCost = singleUnitCost * line.quantity;
 
                     String itemDisplayRateUnit = '/ day';
-                    double itemDisplayRate = item?.rateDaily ?? 0.0;
-                    if (itemDuration.inHours < 24 && (item?.rateHourly ?? 0) > 0) {
+                    double itemDisplayRate = line.rateDaily;
+                    if (itemDuration.inHours < 24 && line.rateHourly > 0) {
                       itemDisplayRateUnit = '/ hr';
-                      itemDisplayRate = item?.rateHourly ?? 0.0;
+                      itemDisplayRate = line.rateHourly;
                     }
 
                     return [
@@ -439,17 +475,17 @@ class PdfReceiptService {
                               crossAxisAlignment: pw.CrossAxisAlignment.start,
                               children: [
                                 pw.Text(
-                                  '${itemLease.quantity > 1 ? '${itemLease.quantity}x ' : ''}${itemLease.item?.name ?? _getLeaseItemDisplayName(itemLease)}',
+                                  '${line.quantity > 1 ? '${line.quantity}x ' : ''}${line.item?.name ?? "Equipment Item"}',
                                   style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy),
                                 ),
-                                pw.Text('Asset SKU: ${itemLease.item?.displaySku ?? "-"}', style: pw.TextStyle(fontSize: 8, color: _muted)),
+                                pw.Text('Asset SKU: ${line.item?.displaySku ?? "-"}', style: pw.TextStyle(fontSize: 8, color: _muted)),
                               ],
                             ),
                           ),
                           pw.Padding(
                             padding: const pw.EdgeInsets.all(8),
                             child: pw.Text(
-                              '${itemLease.quantity} ${itemLease.quantity > 1 ? "pcs" : "pc"}',
+                              '${line.quantity} ${line.quantity > 1 ? "pcs" : "pc"}',
                               style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _ink),
                               textAlign: pw.TextAlign.center,
                             ),
@@ -460,8 +496,8 @@ class PdfReceiptService {
                               crossAxisAlignment: pw.CrossAxisAlignment.start,
                               children: [
                                 pw.Text('$currency${itemDisplayRate.toStringAsFixed(2)}$itemDisplayRateUnit', style: pw.TextStyle(fontSize: 9, color: _ink)),
-                                if (itemLease.quantity > 1)
-                                  pw.Text('($currency${(itemDisplayRate * itemLease.quantity).toStringAsFixed(2)}$itemDisplayRateUnit combined)', style: pw.TextStyle(fontSize: 7, color: _muted)),
+                                if (line.quantity > 1)
+                                  pw.Text('($currency${(itemDisplayRate * line.quantity).toStringAsFixed(2)}$itemDisplayRateUnit combined)', style: pw.TextStyle(fontSize: 7, color: _muted)),
                               ],
                             ),
                           ),
@@ -488,19 +524,18 @@ class PdfReceiptService {
                                   style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy),
                                 ),
                                 pw.SizedBox(height: 2),
-                                if (itemBreakdown != null)
-                                  ...itemBreakdown.components.map((comp) {
-                                    final compTotal = comp.amount * itemLease.quantity;
-                                    return pw.Text(
-                                      '• ${comp.label}: ${comp.calculation} = $currency${comp.amount.toStringAsFixed(2)} / pc'
-                                      '${itemLease.quantity > 1 ? " (Total for ${itemLease.quantity} pcs = $currency${compTotal.toStringAsFixed(2)})" : ""}',
-                                      style: pw.TextStyle(fontSize: 8, color: _ink),
-                                    );
-                                  }),
+                                ...itemBreakdown.components.map((comp) {
+                                  final compTotal = comp.amount * line.quantity;
+                                  return pw.Text(
+                                    '• ${comp.label}: ${comp.calculation} = $currency${comp.amount.toStringAsFixed(2)} / pc'
+                                    '${line.quantity > 1 ? " (Total for ${line.quantity} pcs = $currency${compTotal.toStringAsFixed(2)})" : ""}',
+                                    style: pw.TextStyle(fontSize: 8, color: _ink),
+                                  );
+                                }),
                                 pw.SizedBox(height: 2),
                                 pw.Text(
-                                  itemLease.quantity > 1
-                                      ? 'Formula: ${itemLease.quantity} pcs × $currency${singleUnitCost.toStringAsFixed(2)} / pc = $currency${itemSubtotalCost.toStringAsFixed(2)}'
+                                  line.quantity > 1
+                                      ? 'Formula: ${line.quantity} pcs × $currency${singleUnitCost.toStringAsFixed(2)} / pc = $currency${itemSubtotalCost.toStringAsFixed(2)}'
                                       : 'Formula: 1 pc × $currency${singleUnitCost.toStringAsFixed(2)} = $currency${itemSubtotalCost.toStringAsFixed(2)}',
                                   style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _teal),
                                 ),
@@ -696,20 +731,6 @@ class PdfReceiptService {
                   ],
                 ),
               ],
-            ),
-            pw.SizedBox(height: 12),
-
-            // Footer
-            pw.Container(
-              padding: const pw.EdgeInsets.only(top: 8),
-              decoration: pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: _line))),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Generated on ${_dateFormat.format(DateTime.now())} • RentLedger', style: pw.TextStyle(fontSize: 8, color: _muted)),
-                  pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy2)),
-                ],
-              ),
             ),
           ];
         },
@@ -1307,20 +1328,6 @@ class PdfReceiptService {
                 ),
               ],
             ),
-            pw.SizedBox(height: 12),
-
-            // Footer
-            pw.Container(
-              padding: const pw.EdgeInsets.only(top: 8),
-              decoration: pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: _line))),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Generated on ${_dateFormat.format(DateTime.now())} • RentLedger', style: pw.TextStyle(fontSize: 8, color: _muted)),
-                  pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy2)),
-                ],
-              ),
-            ),
           ];
         },
       ),
@@ -1349,6 +1356,53 @@ class PdfReceiptService {
     final isCollect = lease.finalSettlementBalance > 0;
     final isRefund = lease.finalSettlementBalance < 0;
 
+    final List<LeaseItemModel> lineItemsToRender = [];
+    if (lease.leaseItems.isNotEmpty) {
+      lineItemsToRender.addAll(lease.leaseItems);
+    } else if (multiItemLeases != null && multiItemLeases.isNotEmpty) {
+      for (final l in multiItemLeases) {
+        if (l.leaseItems.isNotEmpty) {
+          lineItemsToRender.addAll(l.leaseItems);
+        } else {
+          lineItemsToRender.add(LeaseItemModel(
+            id: l.id,
+            leaseId: l.id,
+            storeId: l.storeId,
+            itemId: l.itemId,
+            quantity: l.quantity,
+            rateHourly: l.item?.rateHourly ?? 0,
+            rateDaily: l.item?.rateDaily ?? 0,
+            rateWeekly: l.item?.rateWeekly ?? 0,
+            rateMonthly: l.item?.rateMonthly ?? 0,
+            depositAmount: l.depositExpected,
+            lineCalculatedRent: l.calculatedRent,
+            createdAt: l.createdAt,
+            updatedAt: l.updatedAt,
+            item: l.item,
+            returnStatus: l.status,
+          ));
+        }
+      }
+    } else {
+      lineItemsToRender.add(LeaseItemModel(
+        id: lease.id,
+        leaseId: lease.id,
+        storeId: lease.storeId,
+        itemId: lease.itemId,
+        quantity: lease.quantity,
+        rateHourly: lease.item?.rateHourly ?? 0,
+        rateDaily: lease.item?.rateDaily ?? 0,
+        rateWeekly: lease.item?.rateWeekly ?? 0,
+        rateMonthly: lease.item?.rateMonthly ?? 0,
+        depositAmount: lease.depositExpected,
+        lineCalculatedRent: lease.calculatedRent,
+        createdAt: lease.createdAt,
+        updatedAt: lease.updatedAt,
+        item: lease.item,
+        returnStatus: lease.status,
+      ));
+    }
+
     // Determine Callout Banner Colors & Content
     PdfColor calloutBg = _navy;
     String calloutHeadline = 'Fully Settled (Net Zero Balance)';
@@ -1368,14 +1422,59 @@ class PdfReceiptService {
     }
 
     pdf.addPage(
-      pw.Page(
+      pw.MultiPage(
         theme: pdfTheme,
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
+        header: (pw.Context context) {
+          if (context.pageNumber == 1) {
+            return pw.SizedBox.shrink();
+          }
+          return pw.Container(
+            margin: const pw.EdgeInsets.only(bottom: 12),
+            padding: const pw.EdgeInsets.only(bottom: 6),
+            decoration: pw.BoxDecoration(
+              border: pw.Border(bottom: pw.BorderSide(color: _navy, width: 1)),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  '${store.businessName} • Settlement Receipt SR-${lease.shortId}',
+                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy),
+                ),
+                pw.Text(
+                  'Settled: ${_dateOnlyFormat.format(returnTime)}',
+                  style: pw.TextStyle(fontSize: 8, color: _muted),
+                ),
+              ],
+            ),
+          );
+        },
+        footer: (pw.Context context) {
+          return pw.Container(
+            margin: const pw.EdgeInsets.only(top: 12),
+            padding: const pw.EdgeInsets.only(top: 6),
+            decoration: pw.BoxDecoration(
+              border: pw.Border(top: pw.BorderSide(color: _line)),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'Generated on ${_dateFormat.format(DateTime.now())} • RentLedger',
+                  style: pw.TextStyle(fontSize: 8, color: _muted),
+                ),
+                pw.Text(
+                  'Page ${context.pageNumber} of ${context.pagesCount}',
+                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy2),
+                ),
+              ],
+            ),
+          );
+        },
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
+          return [
               // Header Block
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -1549,97 +1648,211 @@ class PdfReceiptService {
               ),
               pw.SizedBox(height: 16),
 
-              // Rental Charge Breakdown Table
-              pw.Text('RENTAL CHARGE BREAKDOWN', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
+              // Itemized Rental Charges & Condition Inspection
+              pw.Text('ITEMIZED RENTAL CHARGES & RETURN INSPECTION', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
               pw.SizedBox(height: 6),
               pw.Container(
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(color: _line),
                   borderRadius: pw.BorderRadius.circular(6),
                 ),
-                child: pw.Table(
-                  border: pw.TableBorder.symmetric(inside: pw.BorderSide(color: _line)),
+                child: pw.Column(
                   children: [
-                    pw.TableRow(
-                      decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F0F4F8')),
-                      children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Description', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _muted)),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Calculation', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _muted)),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Amount', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _muted), textAlign: pw.TextAlign.right),
-                        ),
-                      ],
+                    // Table Header Row
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      color: PdfColor.fromHex('#F0F4F8'),
+                      child: pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Expanded(
+                            flex: 3,
+                            child: pw.Text('Item Description & Condition Status', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _muted)),
+                          ),
+                          pw.Expanded(
+                            flex: 2,
+                            child: pw.Text('Rate Breakdown', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _muted)),
+                          ),
+                          pw.Text('Subtotal', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _muted), textAlign: pw.TextAlign.right),
+                        ],
+                      ),
                     ),
-                    pw.TableRow(
-                      children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Base rental charge', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _ink)),
+                    pw.Divider(color: _line, height: 1),
+
+                    // Item Rows
+                    ...lineItemsToRender.map((line) {
+                      final b = RateCalculator.getReturnRentBreakdown(
+                        startTime: lease.startTime,
+                        actualReturnTime: returnTime,
+                        rateHourly: line.rateHourly > 0 ? line.rateHourly : (line.item?.rateHourly ?? 0.0),
+                        rateDaily: line.rateDaily > 0 ? line.rateDaily : (line.item?.rateDaily ?? 0.0),
+                        rateWeekly: line.rateWeekly > 0 ? line.rateWeekly : (line.item?.rateWeekly ?? 0.0),
+                        rateMonthly: line.rateMonthly > 0 ? line.rateMonthly : (line.item?.rateMonthly ?? 0.0),
+                      );
+                      final lineSubtotal = b.totalRent * line.quantity;
+
+                      final String statusKey = line.returnStatus.toLowerCase();
+                      final bool isLineDamaged = statusKey.contains('maintenance') || statusKey.contains('damaged');
+                      final bool isLost = statusKey.contains('lost');
+                      final bool isInspection = statusKey.contains('awaiting') || statusKey.contains('inspection');
+
+                      final bool hasDamagedSubItem = line.leasedSubItems.any((sub) {
+                        final st = sub.conditionStatus.toLowerCase();
+                        return st.contains('maintenance') || st.contains('damaged') || st.contains('lost') || st.contains('awaiting');
+                      });
+
+                      final bool isDamaged = isLineDamaged || hasDamagedSubItem;
+
+                      final String badgeText = isLineDamaged
+                          ? 'DAMAGED - FEE APPLIED'
+                          : (isLost
+                              ? 'LOST / UNRETURNED'
+                              : (hasDamagedSubItem
+                                  ? 'DAMAGED ACCESSORY'
+                                  : (isInspection ? 'UNDER MAINTENANCE' : 'RETURNED - GOOD CONDITION')));
+
+                      final PdfColor badgeBg = isDamaged || isLost
+                          ? PdfColor.fromHex('#FCE8E6')
+                          : (isInspection ? PdfColor.fromHex('#FEF3D6') : PdfColor.fromHex('#E6F4EA'));
+
+                      final PdfColor badgeTextColor = isDamaged || isLost
+                          ? _red
+                          : (isInspection ? PdfColor.fromHex('#B45309') : _green);
+
+                      final bool hasProblem = isDamaged || isLost || isInspection;
+
+                      return pw.Container(
+                        padding: const pw.EdgeInsets.all(10),
+                        decoration: pw.BoxDecoration(
+                          color: hasProblem ? PdfColor.fromHex('#FFF5F5') : PdfColors.white,
+                          border: pw.Border(bottom: pw.BorderSide(color: _line, width: 0.5)),
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Recorded duration: $actualDurationText', style: pw.TextStyle(fontSize: 9, color: _muted)),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Row(
+                              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                              children: [
+                                pw.Expanded(
+                                  child: pw.Row(
+                                    children: [
+                                      pw.Text(
+                                        '${line.quantity}x ${line.item?.name ?? "Equipment Item"}',
+                                        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy),
+                                      ),
+                                      pw.SizedBox(width: 8),
+                                      pw.Container(
+                                        padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: pw.BoxDecoration(
+                                          color: badgeBg,
+                                          borderRadius: pw.BorderRadius.circular(4),
+                                        ),
+                                        child: pw.Text(
+                                          badgeText,
+                                          style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: badgeTextColor),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                pw.Text(
+                                  '$currency${lineSubtotal.toStringAsFixed(2)}',
+                                  style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy),
+                                ),
+                              ],
+                            ),
+                            pw.SizedBox(height: 4),
+
+                            // Rate components breakdown
+                            ...b.components.map((comp) {
+                              final compTotal = comp.amount * line.quantity;
+                              return pw.Padding(
+                                padding: const pw.EdgeInsets.only(top: 2),
+                                child: pw.Row(
+                                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    pw.Text(
+                                      '  • ${comp.label}: ${comp.calculation}',
+                                      style: pw.TextStyle(fontSize: 8.5, color: _muted),
+                                    ),
+                                    pw.Text(
+                                      line.quantity > 1
+                                          ? '$currency${comp.amount.toStringAsFixed(2)} / pc ($currency${compTotal.toStringAsFixed(2)})'
+                                          : '$currency${comp.amount.toStringAsFixed(2)}',
+                                      style: pw.TextStyle(fontSize: 8.5, color: _ink),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+
+                            if (line.quantity > 1) ...[
+                              pw.SizedBox(height: 2),
+                              pw.Text(
+                                '  Piece Formula: ${line.quantity} pcs × $currency${b.totalRent.toStringAsFixed(2)} / pc = $currency${lineSubtotal.toStringAsFixed(2)}',
+                                style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: _teal),
+                              ),
+                            ],
+
+                            // Sub-items if any
+                            if (line.leasedSubItems.isNotEmpty) ...[
+                              pw.SizedBox(height: 4),
+                              pw.Text('  Sub-Items & Accessories Inspection:', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: _navy)),
+                              ...line.leasedSubItems.map((sub) {
+                                final subSt = sub.conditionStatus.toLowerCase();
+                                final bool subDamaged = subSt.contains('maintenance') || subSt.contains('damaged') || subSt.contains('lost');
+                                return pw.Padding(
+                                  padding: const pw.EdgeInsets.only(left: 8, top: 2),
+                                  child: pw.Text(
+                                    '    - ${sub.itemName}${sub.serialNumber != null ? " (SN: ${sub.serialNumber})" : ""}: ${subDamaged ? "[DAMAGED / EXCEPTION]" : "[GOOD CONDITION]"}',
+                                    style: pw.TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: subDamaged ? pw.FontWeight.bold : pw.FontWeight.normal,
+                                      color: subDamaged ? _red : _muted,
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
+                          ],
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('$currency${lease.calculatedRent.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right),
-                        ),
-                      ],
-                    ),
+                      );
+                    }),
+
                     if (lease.discountAmount > 0)
-                      pw.TableRow(
-                        children: [
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Text('Discount / Voucher (-)', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _green)),
-                          ),
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Text('Promotional coupon discount', style: pw.TextStyle(fontSize: 9, color: _muted)),
-                          ),
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Text('-$currency${lease.discountAmount.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _green), textAlign: pw.TextAlign.right),
-                          ),
-                        ],
+                      pw.Container(
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text('Promotional Discount / Coupon (-)', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _green)),
+                            pw.Text('-$currency${lease.discountAmount.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _green)),
+                          ],
+                        ),
                       ),
+
                     if (lease.damageOrLateFee > 0)
-                      pw.TableRow(
+                      pw.Container(
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text('Inspection Damage / Overdue Fee (+)', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _red)),
+                            pw.Text('+$currency${lease.damageOrLateFee.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _red)),
+                          ],
+                        ),
+                      ),
+
+                    pw.Container(
+                      padding: const pw.EdgeInsets.all(8),
+                      color: PdfColor.fromHex('#F7FAFC'),
+                      child: pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                         children: [
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Text('Damage / Overdue Fee (+)', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _red)),
-                          ),
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Text('Late return or inspection damage charges', style: pw.TextStyle(fontSize: 9, color: _muted)),
-                          ),
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Text('+$currency${lease.damageOrLateFee.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _red), textAlign: pw.TextAlign.right),
-                          ),
+                          pw.Text('Total Net Rental Charges', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
+                          pw.Text('$currency${lease.netRentTotal.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _navy)),
                         ],
                       ),
-                    pw.TableRow(
-                      decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F7FAFC')),
-                      children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('Total Net Rental Charges', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
-                        ),
-                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text('$currency${lease.netRentTotal.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _navy), textAlign: pw.TextAlign.right),
-                        ),
-                      ],
                     ),
                   ],
                 ),
@@ -1822,25 +2035,10 @@ class PdfReceiptService {
                   ),
                 ],
               ),
-              pw.SizedBox(height: 12),
-
-              // Footer
-              pw.Container(
-                padding: const pw.EdgeInsets.only(top: 8),
-                decoration: pw.BoxDecoration(border: pw.Border(top: pw.BorderSide(color: _line))),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('Generated on ${_dateFormat.format(DateTime.now())} • RentLedger', style: pw.TextStyle(fontSize: 8, color: _muted)),
-                    pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy2)),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
+            ];
+          },
+        ),
+      );
 
     final outputDir = await getTemporaryDirectory();
     final file = File('${outputDir.path}/settlement_receipt_${lease.shortId}.pdf');

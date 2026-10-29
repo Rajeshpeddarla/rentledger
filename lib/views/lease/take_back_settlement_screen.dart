@@ -8,7 +8,9 @@ import '../../core/services/pdf_receipt_service.dart';
 import '../../core/utils/rate_calculator.dart';
 import '../../data/models/discount_model.dart';
 import '../../data/models/inventory_item_model.dart';
+import '../../data/models/lease_item_model.dart';
 import '../../data/models/lease_model.dart';
+import '../../data/models/leased_sub_item_model.dart';
 import '../../data/models/store_model.dart';
 import '../../data/models/sub_item_model.dart';
 import '../../data/repositories/sub_item_repository.dart';
@@ -17,7 +19,22 @@ import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/discount/discount_cubit.dart';
 import '../../viewmodels/discount/discount_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
+import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
+
+class ItemSmartBreakdown {
+  final String name;
+  final int quantity;
+  final RentalBreakdown breakdown;
+  final double lineTotalRent;
+
+  ItemSmartBreakdown({
+    required this.name,
+    required this.quantity,
+    required this.breakdown,
+    required this.lineTotalRent,
+  });
+}
 
 class TakeBackSettlementScreen extends StatefulWidget {
   final LeaseModel lease;
@@ -34,7 +51,8 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   final String _billingMode = 'auto'; // 'auto', 'hourly', 'daily', 'weekly', 'monthly'
   String _returnStatus = 'available'; // 'available', 'awaiting_inspection', 'maintenance', 'lost'
 
-  // Sub-items tracking for this lease item
+  // Item & Sub-items status tracking
+  final Map<String, String> _itemStatusMap = {};
   List<SubItemModel> _subItems = [];
   final Map<String, String> _subItemStatusMap = {};
 
@@ -45,6 +63,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   DiscountModel? _appliedDiscount;
 
   RentalBreakdown? _breakdown;
+  final List<ItemSmartBreakdown> _itemBreakdowns = [];
   double _calculatedRent = 0.0;
   double _netRent = 0.0;
   double _finalBalance = 0.0;
@@ -54,19 +73,34 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   void initState() {
     super.initState();
     _actualReturnTime = DateTime.now();
-    _recalculate();
 
-    // Load sub-items for this equipment item
+    // Initialize item status map for items in lease
+    if (widget.lease.leaseItems.isNotEmpty) {
+      for (final line in widget.lease.leaseItems) {
+        _itemStatusMap[line.id] = 'available';
+        for (final sub in line.leasedSubItems) {
+          _subItemStatusMap[sub.id] = 'available';
+        }
+      }
+    } else {
+      _itemStatusMap[widget.lease.itemId] = 'available';
+    }
+
+    // Load sub-items for primary item if any
     SubItemRepository().getSubItems(parentItemId: widget.lease.itemId).then((list) {
       if (mounted && list.isNotEmpty) {
         setState(() {
           _subItems = list;
           for (final s in list) {
-            _subItemStatusMap[s.id] = 'available';
+            if (!_subItemStatusMap.containsKey(s.id)) {
+              _subItemStatusMap[s.id] = 'available';
+            }
           }
         });
       }
     });
+
+    _recalculate();
   }
 
   @override
@@ -83,6 +117,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
 
   void _recalculate() {
     double totalCalculated = 0.0;
+    _itemBreakdowns.clear();
 
     if (widget.lease.leaseItems.isNotEmpty) {
       for (final li in widget.lease.leaseItems) {
@@ -94,20 +129,29 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
           rateWeekly: li.rateWeekly > 0 ? li.rateWeekly : (li.item?.rateWeekly ?? 0.0),
           rateMonthly: li.rateMonthly > 0 ? li.rateMonthly : (li.item?.rateMonthly ?? 0.0),
         );
-        totalCalculated += (b.totalRent * li.quantity);
+        final lineRent = b.totalRent * li.quantity;
+        totalCalculated += lineRent;
+
+        _itemBreakdowns.add(ItemSmartBreakdown(
+          name: li.item?.name ?? 'Equipment Item',
+          quantity: li.quantity,
+          breakdown: b,
+          lineTotalRent: lineRent,
+        ));
       }
-      _breakdown = RateCalculator.getReturnRentBreakdown(
-        startTime: widget.lease.startTime,
-        actualReturnTime: _actualReturnTime,
-        rateHourly: widget.lease.leaseItems.first.rateHourly,
-        rateDaily: widget.lease.leaseItems.first.rateDaily,
-        rateWeekly: widget.lease.leaseItems.first.rateWeekly,
-        rateMonthly: widget.lease.leaseItems.first.rateMonthly,
-      );
     } else {
       InventoryItemModel? item = widget.lease.item;
+      if (item == null) {
+        try {
+          final invState = context.read<InventoryCubit>().state;
+          if (invState is InventoryLoaded) {
+            item = invState.allItems.firstWhere((i) => i.id == widget.lease.itemId);
+          }
+        } catch (_) {}
+      }
+
       if (item != null) {
-        _breakdown = RateCalculator.getReturnRentBreakdown(
+        final b = RateCalculator.getReturnRentBreakdown(
           startTime: widget.lease.startTime,
           actualReturnTime: _actualReturnTime,
           rateHourly: item.rateHourly,
@@ -115,7 +159,14 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
           rateWeekly: item.rateWeekly,
           rateMonthly: item.rateMonthly,
         );
-        totalCalculated = _breakdown!.totalRent * widget.lease.quantity;
+        totalCalculated = b.totalRent * widget.lease.quantity;
+
+        _itemBreakdowns.add(ItemSmartBreakdown(
+          name: item.name,
+          quantity: widget.lease.quantity,
+          breakdown: b,
+          lineTotalRent: totalCalculated,
+        ));
       } else {
         totalCalculated = widget.lease.calculatedRent;
       }
@@ -170,6 +221,61 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
       final store = storeState is StoreLoaded ? storeState.store : null;
       if (store == null) throw Exception('Store not found');
 
+      // Construct updated line items and sub-items with exact selected return/condition statuses
+      List<LeaseItemModel> updatedLeaseItems = [];
+
+      if (widget.lease.leaseItems.isNotEmpty) {
+        updatedLeaseItems = widget.lease.leaseItems.map((line) {
+          final st = _itemStatusMap[line.id] ?? 'available';
+          final updatedSubItems = line.leasedSubItems.map((sub) {
+            final subSt = _subItemStatusMap[sub.id] ?? 'available';
+            return sub.copyWith(conditionStatus: subSt);
+          }).toList();
+
+          return line.copyWith(
+            returnStatus: st,
+            leasedSubItems: updatedSubItems,
+          );
+        }).toList();
+      } else {
+        final st = _itemStatusMap[widget.lease.itemId] ?? _returnStatus;
+        final updatedSubItems = _subItems.map((s) {
+          final subSt = _subItemStatusMap[s.id] ?? 'available';
+          return LeasedSubItemModel(
+            id: s.id,
+            leaseId: widget.lease.id,
+            leaseItemId: widget.lease.id,
+            subItemId: s.id,
+            itemId: widget.lease.itemId,
+            storeId: widget.lease.storeId,
+            itemName: s.name,
+            serialNumber: s.serialNumber,
+            conditionStatus: subSt,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+        }).toList();
+
+        updatedLeaseItems.add(LeaseItemModel(
+          id: widget.lease.id,
+          leaseId: widget.lease.id,
+          storeId: widget.lease.storeId,
+          itemId: widget.lease.itemId,
+          quantity: widget.lease.quantity,
+          rateHourly: widget.lease.item?.rateHourly ?? 0,
+          rateDaily: widget.lease.item?.rateDaily ?? 0,
+          rateWeekly: widget.lease.item?.rateWeekly ?? 0,
+          rateMonthly: widget.lease.item?.rateMonthly ?? 0,
+          depositAmount: widget.lease.depositExpected,
+          lineCalculatedRent: widget.lease.calculatedRent,
+          returnStatus: st,
+          createdAt: widget.lease.createdAt,
+          updatedAt: DateTime.now(),
+          item: widget.lease.item,
+          leasedSubItems: updatedSubItems,
+        ));
+      }
+
       final updatedLease = widget.lease.copyWith(
         actualReturnTime: _actualReturnTime,
         billingUnitUsed: _billingMode,
@@ -180,6 +286,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
         finalSettlementBalance: _finalBalance,
         returnNotes: _notesController.text.trim(),
         status: 'returned',
+        leaseItems: updatedLeaseItems,
       );
 
       final settled = await context.read<LeaseCubit>().returnAndSettle(updatedLease);
@@ -428,10 +535,19 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
     final currency = store?.currencySymbol ?? '₹';
 
     final duration = _actualReturnTime.difference(widget.lease.startTime);
-    final days = duration.inDays;
-    final hours = duration.inHours % 24;
+    final totalMinutes = duration.inMinutes < 1 ? 1 : duration.inMinutes;
 
-    final String displayName = _getLeaseItemDisplayName();
+    final days = totalMinutes ~/ (24 * 60);
+    final minutesAfterDays = totalMinutes % (24 * 60);
+    final hours = minutesAfterDays ~/ 60;
+    final minutes = minutesAfterDays % 60;
+
+    String fallbackDurationText = '';
+    if (days > 0) fallbackDurationText += '$days Day${days > 1 ? 's' : ''}, ';
+    if (hours > 0) fallbackDurationText += '$hours Hr${hours > 1 ? 's' : ''}, ';
+    fallbackDurationText += '$minutes Min${minutes > 1 ? 's' : ''}';
+
+    final durationDisplay = _breakdown?.durationText ?? fallbackDurationText;
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -445,57 +561,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Asset Summary Tile
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.handyman, color: AppColors.primary, size: 26),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayName,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Client: ${widget.lease.customer?.name ?? "Customer"} (${widget.lease.customer?.phone ?? "-"}) • ${widget.lease.totalPieces} Pcs',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // Actual Duration & Timeline Card
+            // 1. Actual Duration & Timeline Card
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -513,7 +579,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                         children: [
                           Icon(Icons.timer_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
                           const SizedBox(width: 6),
-                          const Text('Rental Duration', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          const Text('Rental Duration & Timeline', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                         ],
                       ),
                       Container(
@@ -523,7 +589,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          _breakdown?.durationText ?? "$days Day(s), $hours Hr(s)",
+                          durationDisplay,
                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
                         ),
                       ),
@@ -572,7 +638,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Recorded Duration: ${_breakdown?.durationText ?? "$days Day(s), $hours Hr(s)"}',
+                    'Recorded Duration: $durationDisplay',
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? AppColors.primaryLight : AppColors.primary),
                   ),
                 ],
@@ -581,74 +647,128 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
 
             const SizedBox(height: 14),
 
-            // Physical Condition Inspection Module
+            // 2. Master Quick Action Control
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.darkCard : Colors.white,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    'Quick Inspection Actions',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                  ),
+                  const SizedBox(height: 8),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.fact_check_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
-                          const SizedBox(width: 6),
-                          const Text('Condition Inspection', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                        ],
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              for (final k in _itemStatusMap.keys) {
+                                _itemStatusMap[k] = 'available';
+                              }
+                              for (final k in _subItemStatusMap.keys) {
+                                _subItemStatusMap[k] = 'available';
+                              }
+                              _returnStatus = 'available';
+                            });
+                          },
+                          icon: const Icon(Icons.check_circle_outline, size: 14),
+                          label: const Text(
+                            'Mark All Ready',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
                       ),
-                      Text('Dispatch Photos: ${widget.lease.beforePhotoUrls.length}',
-                          style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              for (final k in _itemStatusMap.keys) {
+                                _itemStatusMap[k] = 'maintenance';
+                              }
+                              for (final k in _subItemStatusMap.keys) {
+                                _subItemStatusMap[k] = 'maintenance';
+                              }
+                              _returnStatus = 'maintenance';
+                            });
+                          },
+                          icon: const Icon(Icons.warning_amber_rounded, size: 14, color: AppColors.errorRed),
+                          label: const Text(
+                            'Mark All Damaged',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                            side: const BorderSide(color: AppColors.errorRed),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                ],
+              ),
+            ),
 
-                  // Master Quick Action: Select All Arrived in Good Condition
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _returnStatus = 'available';
-                          for (final key in _subItemStatusMap.keys) {
-                            _subItemStatusMap[key] = 'available';
-                          }
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('All items & sub-items marked as Ready / Good Condition!'),
-                            backgroundColor: AppColors.primary,
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.done_all, size: 16),
-                      label: const Text('Select All Arrived in Good Condition', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
-                  ),
+            const SizedBox(height: 14),
 
-                  if (widget.lease.beforePhotoUrls.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'Photos Taken When Leasing:',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                      ),
+            // 3. Individual Item Settlement Cards
+            Text(
+              'Equipment Condition Inspection',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            ..._buildIndividualItemCards(context, isDark),
+
+            const SizedBox(height: 6),
+
+            // 4. Inspection Proof Photos taken when leasing
+            if (widget.lease.beforePhotoUrls.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.photo_library_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                            const SizedBox(width: 6),
+                            const Text('Photos Taken When Leasing', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        Text('${widget.lease.beforePhotoUrls.length} Photos',
+                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     SizedBox(
                       height: 76,
                       child: ListView.separated(
@@ -664,105 +784,8 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 12),
-
-                  // Individual Sub-Items Inspection Dropdowns if sub-items exist
-                  if (_subItems.isNotEmpty) ...[
-                    Text('Sub-Items Inspection & Return Status', style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 6),
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _subItems.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final sub = _subItems[index];
-                        final currentSt = _subItemStatusMap[sub.id] ?? 'available';
-
-                        return Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(sub.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                    Text(sub.serialNumber != null && sub.serialNumber!.isNotEmpty ? 'SN: ${sub.serialNumber}' : sub.displaySku,
-                                        style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              DropdownButton<String>(
-                                value: currentSt,
-                                underline: const SizedBox.shrink(),
-                                items: const [
-                                  DropdownMenuItem(value: 'available', child: Text('Ready', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryLight))),
-                                  DropdownMenuItem(value: 'awaiting_inspection', child: Text('Inspection', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber))),
-                                  DropdownMenuItem(value: 'maintenance', child: Text('Damaged', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber))),
-                                  DropdownMenuItem(value: 'lost', child: Text('Lost', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed))),
-                                ],
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    setState(() {
-                                      _subItemStatusMap[sub.id] = val;
-                                    });
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ] else ...[
-                    // Stock Return Status Dropdown Selector for Parent Item
-                    Text('Stock Return Status', style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 6),
-                    DropdownButtonFormField<String>(
-                      initialValue: _returnStatus,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.inventory_2_outlined),
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'available',
-                          child: Text('Available (Inspected & Ready to Rent)', style: TextStyle(fontSize: 12)),
-                        ),
-                        DropdownMenuItem(
-                          value: 'awaiting_inspection',
-                          child: Text('Awaiting Inspection (Pending Testing)', style: TextStyle(fontSize: 12)),
-                        ),
-                        DropdownMenuItem(
-                          value: 'maintenance',
-                          child: Text('Maintenance (Damaged / Under Repair)', style: TextStyle(fontSize: 12)),
-                        ),
-                        DropdownMenuItem(
-                          value: 'lost',
-                          child: Text('Lost / Unreturned (Need Restock)', style: TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() {
-                            _returnStatus = val;
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ],
+                ),
               ),
-            ),
 
             const SizedBox(height: 14),
 
@@ -839,37 +862,69 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Display Component Breakdown List
-                  if (_breakdown != null && _breakdown!.components.isNotEmpty) ...[
-                    ..._breakdown!.components.map((comp) {
-                      final compSubtotal = comp.amount * widget.lease.quantity;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  // Display Itemized Component Breakdown List for ALL items in order
+                  if (_itemBreakdowns.isNotEmpty) ...[
+                    ..._itemBreakdowns.map((itemBk) {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(comp.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  Text(
-                                    widget.lease.quantity > 1
-                                        ? '${comp.calculation} = $currency${comp.amount.toStringAsFixed(2)} / pc'
-                                        : comp.calculation,
-                                    style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                                  ),
-                                ],
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${itemBk.quantity}x ${itemBk.name}',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
+                                ),
+                                Text(
+                                  '$currency${itemBk.lineTotalRent.toStringAsFixed(2)}',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            ...itemBk.breakdown.components.map((comp) {
+                              final compSubtotal = comp.amount * itemBk.quantity;
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '• ${comp.label}: ${comp.calculation}',
+                                        style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                      ),
+                                    ),
+                                    Text(
+                                      itemBk.quantity > 1
+                                          ? '$currency${comp.amount.toStringAsFixed(2)} / pc ($currency${compSubtotal.toStringAsFixed(2)})'
+                                          : '$currency${comp.amount.toStringAsFixed(2)}',
+                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                            if (itemBk.quantity > 1) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Formula: ${itemBk.quantity} pcs × $currency${itemBk.breakdown.totalRent.toStringAsFixed(2)} / pc = $currency${itemBk.lineTotalRent.toStringAsFixed(2)}',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
                               ),
-                            ),
-                            Text(
-                              '$currency${compSubtotal.toStringAsFixed(2)}',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
+                            ],
                           ],
                         ),
                       );
                     }),
+                    const SizedBox(height: 4),
                     Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                     const SizedBox(height: 6),
                   ],
@@ -1043,6 +1098,343 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
     );
   }
 
+  List<Widget> _buildIndividualItemCards(BuildContext context, bool isDark) {
+    final List<Widget> cards = [];
+
+    final hasLineItems = widget.lease.leaseItems.isNotEmpty;
+    final itemsCount = hasLineItems ? widget.lease.leaseItems.length : 1;
+
+    for (int i = 0; i < itemsCount; i++) {
+      final lineItem = hasLineItems ? widget.lease.leaseItems[i] : null;
+      final key = lineItem?.id ?? widget.lease.itemId;
+      final itemName = lineItem?.item?.name ?? (hasLineItems ? 'Equipment Item #${i + 1}' : _getLeaseItemDisplayName());
+      final qty = lineItem?.quantity ?? widget.lease.quantity;
+      final sku = lineItem?.item?.displaySku ?? widget.lease.item?.displaySku ?? '-';
+
+      final currentStatus = _itemStatusMap[key] ?? 'available';
+
+      // Get sub-items for this line item
+      final List<dynamic> subItemsList = lineItem != null && lineItem.leasedSubItems.isNotEmpty
+          ? lineItem.leasedSubItems
+          : (i == 0 ? _subItems : []);
+
+      bool isCardDamagedOrLost = currentStatus == 'maintenance' ||
+          currentStatus == 'lost' ||
+          currentStatus == 'awaiting_inspection';
+
+      for (final sub in subItemsList) {
+        final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+        final subSt = _subItemStatusMap[subId] ?? 'available';
+        if (subSt == 'maintenance' || subSt == 'lost' || subSt == 'awaiting_inspection') {
+          isCardDamagedOrLost = true;
+          break;
+        }
+      }
+
+      final Color cardBgColor = isCardDamagedOrLost
+          ? (isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2))
+          : (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5));
+
+      final Color cardBorderColor = isCardDamagedOrLost
+          ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA))
+          : (isDark ? AppColors.primary : const Color(0xFFA7F3D0));
+
+      final String statusLabel = isCardDamagedOrLost ? 'DAMAGED / REPAIR' : 'AVAILABLE (READY)';
+      final Color badgeBg = isCardDamagedOrLost
+          ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFFDAD6))
+          : (isDark ? AppColors.darkSurfaceLow : const Color(0xFFD1FAE5));
+      final Color badgeTextColor = isCardDamagedOrLost ? AppColors.errorRed : AppColors.primary;
+
+      cards.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cardBgColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: cardBorderColor, width: 1.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$qty x $itemName',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Asset SKU: $sku • $qty ${qty > 1 ? "pieces" : "piece"}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: badgeBg,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: badgeTextColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              Text(
+                'Select Item Condition:',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // 4 Choice Options for Item Condition
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _buildConditionChoiceChip(
+                    label: 'Available (OK)',
+                    value: 'available',
+                    selectedGroupValue: currentStatus,
+                    onSelected: () {
+                      setState(() {
+                        _itemStatusMap[key] = 'available';
+                      });
+                    },
+                    isDark: isDark,
+                    activeColor: AppColors.primary,
+                  ),
+                  _buildConditionChoiceChip(
+                    label: 'Damaged',
+                    value: 'maintenance',
+                    selectedGroupValue: currentStatus,
+                    onSelected: () {
+                      setState(() {
+                        _itemStatusMap[key] = 'maintenance';
+                      });
+                    },
+                    isDark: isDark,
+                    activeColor: AppColors.errorRed,
+                  ),
+                  _buildConditionChoiceChip(
+                    label: 'Lost',
+                    value: 'lost',
+                    selectedGroupValue: currentStatus,
+                    onSelected: () {
+                      setState(() {
+                        _itemStatusMap[key] = 'lost';
+                      });
+                    },
+                    isDark: isDark,
+                    activeColor: AppColors.errorRed,
+                  ),
+                  _buildConditionChoiceChip(
+                    label: 'Maintenance',
+                    value: 'awaiting_inspection',
+                    selectedGroupValue: currentStatus,
+                    onSelected: () {
+                      setState(() {
+                        _itemStatusMap[key] = 'awaiting_inspection';
+                      });
+                    },
+                    isDark: isDark,
+                    activeColor: AppColors.tertiaryAmber,
+                  ),
+                ],
+              ),
+
+              // Sub-Items Section inside Card
+              if (subItemsList.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                const SizedBox(height: 8),
+                Text(
+                  'Sub-Items & Accessories Inspection (${subItemsList.length}):',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...subItemsList.map((sub) {
+                  final String subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+                  final String subName = sub is LeasedSubItemModel ? sub.itemName : (sub as SubItemModel).name;
+                  final String? subSerial = sub is LeasedSubItemModel ? sub.serialNumber : (sub as SubItemModel).serialNumber;
+                  final String currentSubSt = _subItemStatusMap[subId] ?? 'available';
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkCard : Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '• $subName${subSerial != null && subSerial.isNotEmpty ? " (SN: $subSerial)" : ""}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            _buildConditionChoiceChip(
+                              label: 'Available',
+                              value: 'available',
+                              selectedGroupValue: currentSubSt,
+                              onSelected: () {
+                                setState(() {
+                                  _subItemStatusMap[subId] = 'available';
+                                });
+                              },
+                              isDark: isDark,
+                              activeColor: AppColors.primary,
+                              isCompact: true,
+                            ),
+                            _buildConditionChoiceChip(
+                              label: 'Damaged',
+                              value: 'maintenance',
+                              selectedGroupValue: currentSubSt,
+                              onSelected: () {
+                                setState(() {
+                                  _subItemStatusMap[subId] = 'maintenance';
+                                });
+                              },
+                              isDark: isDark,
+                              activeColor: AppColors.errorRed,
+                              isCompact: true,
+                            ),
+                            _buildConditionChoiceChip(
+                              label: 'Lost',
+                              value: 'lost',
+                              selectedGroupValue: currentSubSt,
+                              onSelected: () {
+                                setState(() {
+                                  _subItemStatusMap[subId] = 'lost';
+                                });
+                              },
+                              isDark: isDark,
+                              activeColor: AppColors.errorRed,
+                              isCompact: true,
+                            ),
+                            _buildConditionChoiceChip(
+                              label: 'Maintenance',
+                              value: 'awaiting_inspection',
+                              selectedGroupValue: currentSubSt,
+                              onSelected: () {
+                                setState(() {
+                                  _subItemStatusMap[subId] = 'awaiting_inspection';
+                                });
+                              },
+                              isDark: isDark,
+                              activeColor: AppColors.tertiaryAmber,
+                              isCompact: true,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    return cards;
+  }
+
+  Widget _buildConditionChoiceChip({
+    required String label,
+    required String value,
+    required String selectedGroupValue,
+    required VoidCallback onSelected,
+    required bool isDark,
+    required Color activeColor,
+    bool isCompact = false,
+  }) {
+    final bool isSelected = selectedGroupValue == value;
+
+    return InkWell(
+      onTap: onSelected,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: isCompact ? 8 : 10,
+          vertical: isCompact ? 4 : 6,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor
+              : (isDark ? AppColors.darkCard : Colors.white),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: isCompact ? 12 : 14,
+              color: isSelected ? Colors.white : (isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+            ),
+            SizedBox(width: isCompact ? 4 : 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: isCompact ? 10 : 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected ? Colors.white : (isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildConditionPhotoThumbnail(BuildContext context, String photoUrl, int index, bool isDark) {
     return GestureDetector(
       onTap: () => _showEnlargedPhotoDialog(context, photoUrl, index),
@@ -1136,20 +1528,23 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                     separatorBuilder: (context, index) => const SizedBox(width: 6),
                     itemBuilder: (context, index) {
                       final disc = discounts[index];
-                      return ListTile(
-                        leading: const Icon(Icons.local_offer, color: AppColors.primary),
-                        title: Text(disc.code, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(disc.title),
-                        trailing: Text(disc.discountText, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
-                        onTap: () {
-                          final discAmt = disc.calculateDiscountAmount(_calculatedRent);
-                          setState(() {
-                            _appliedDiscount = disc;
-                            _discountController.text = discAmt.toStringAsFixed(0);
-                            _recalculate();
-                          });
-                          Navigator.pop(modalCtx);
-                        },
+                      return Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          leading: const Icon(Icons.local_offer, color: AppColors.primary),
+                          title: Text(disc.code, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(disc.title),
+                          trailing: Text(disc.discountText, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
+                          onTap: () {
+                            final discAmt = disc.calculateDiscountAmount(_calculatedRent);
+                            setState(() {
+                              _appliedDiscount = disc;
+                              _discountController.text = discAmt.toStringAsFixed(0);
+                              _recalculate();
+                            });
+                            Navigator.pop(modalCtx);
+                          },
+                        ),
                       );
                     },
                   ),

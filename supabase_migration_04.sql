@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.lease_items (
     id TEXT PRIMARY KEY,
     lease_id UUID NOT NULL REFERENCES public.leases(id) ON DELETE CASCADE,
     store_id TEXT NOT NULL,
-    item_id TEXT NOT NULL,
+    item_id UUID NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
     quantity INT DEFAULT 1,
     rate_hourly NUMERIC DEFAULT 0.0,
     rate_daily NUMERIC DEFAULT 0.0,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.leased_sub_items (
     lease_id UUID NOT NULL REFERENCES public.leases(id) ON DELETE CASCADE,
     lease_item_id TEXT NOT NULL REFERENCES public.lease_items(id) ON DELETE CASCADE,
     sub_item_id TEXT NOT NULL,
-    item_id TEXT NOT NULL,
+    item_id UUID NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
     store_id TEXT NOT NULL,
     item_name TEXT NOT NULL,
     serial_number TEXT,
@@ -57,3 +57,46 @@ CREATE POLICY "Users can manage leased_sub_items for their store" ON public.leas
     FOR ALL
     USING (auth.uid()::text = store_id)
     WITH CHECK (auth.uid()::text = store_id);
+
+-- 3. Migration Fix for Existing Databases (Safe Alter & Foreign Key Enforcement)
+DO $$
+BEGIN
+    -- Fix lease_items.item_id type & foreign key constraint
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'lease_items' AND column_name = 'item_id' AND data_type = 'text'
+    ) THEN
+        ALTER TABLE public.lease_items ALTER COLUMN item_id TYPE UUID USING (item_id::uuid);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_lease_items_inventory_items'
+          OR constraint_name = 'lease_items_item_id_fkey'
+    ) THEN
+        ALTER TABLE public.lease_items
+        ADD CONSTRAINT fk_lease_items_inventory_items
+        FOREIGN KEY (item_id) REFERENCES public.inventory_items(id) ON DELETE CASCADE;
+    END IF;
+
+    -- Fix leased_sub_items.item_id type & foreign key constraint
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'leased_sub_items' AND column_name = 'item_id' AND data_type = 'text'
+    ) THEN
+        ALTER TABLE public.leased_sub_items ALTER COLUMN item_id TYPE UUID USING (item_id::uuid);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_leased_sub_items_inventory_items'
+          OR constraint_name = 'leased_sub_items_item_id_fkey'
+    ) THEN
+        ALTER TABLE public.leased_sub_items
+        ADD CONSTRAINT fk_leased_sub_items_inventory_items
+        FOREIGN KEY (item_id) REFERENCES public.inventory_items(id) ON DELETE CASCADE;
+    END IF;
+END $$;
+
+-- 4. Reload PostgREST Schema Cache
+NOTIFY pgrst, 'reload schema';

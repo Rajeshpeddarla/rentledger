@@ -69,7 +69,7 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                '${lease.item?.name ?? "Equipment"} • ${lease.customer?.name ?? "Customer"}',
+                '${lease.itemNamesSummary} • ${lease.customer?.name ?? "Customer"}',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12,
@@ -361,7 +361,7 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
                           final isOverdue = lease.isOverdue;
                           final isReturned = lease.status == 'returned';
 
-                          final String itemName = '${lease.quantity > 1 ? '${lease.quantity}x ' : ''}${lease.item?.name ?? "Equipment Item"}';
+                          final String itemName = lease.itemNamesSummary;
 
                           return Container(
                             padding: const EdgeInsets.all(12),
@@ -414,20 +414,37 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 6),
                                 Row(
                                   children: [
-                                    Icon(Icons.person, size: 14, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                    Icon(Icons.person_outline, size: 14, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
                                     const SizedBox(width: 4),
                                     Text(
-                                      '${lease.customer?.name ?? "Customer"} (${lease.customer?.phone ?? "-"})',
+                                      lease.customer?.name ?? "Customer",
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
                                       ),
                                     ),
                                   ],
                                 ),
+                                if (lease.customer?.phone != null && lease.customer!.phone.isNotEmpty) ...[
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.phone_outlined, size: 14, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        lease.customer!.phone,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                                 const SizedBox(height: 4),
                                 Row(
                                   children: [

@@ -285,17 +285,23 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.camera_alt_outlined, color: AppColors.primary),
-                  title: const Text('Take Photo with In-App Camera'),
-                  subtitle: const Text('Fast, crash-proof live equipment capture'),
-                  onTap: () => Navigator.pop(ctx, 'camera'),
+                Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    leading: const Icon(Icons.camera_alt_outlined, color: AppColors.primary),
+                    title: const Text('Take Photo with In-App Camera'),
+                    subtitle: const Text('Fast, crash-proof live equipment capture'),
+                    onTap: () => Navigator.pop(ctx, 'camera'),
+                  ),
                 ),
-                ListTile(
-                  leading: const Icon(Icons.photo_library_outlined, color: AppColors.primary),
-                  title: const Text('Choose from Gallery'),
-                  subtitle: const Text('Select existing photo from device storage'),
-                  onTap: () => Navigator.pop(ctx, 'gallery'),
+                Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    leading: const Icon(Icons.photo_library_outlined, color: AppColors.primary),
+                    title: const Text('Choose from Gallery'),
+                    subtitle: const Text('Select existing photo from device storage'),
+                    onTap: () => Navigator.pop(ctx, 'gallery'),
+                  ),
                 ),
               ],
             ),
@@ -368,15 +374,21 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.camera_alt_outlined, color: AppColors.primary),
-                  title: const Text('Retake with In-App Camera'),
-                  onTap: () => Navigator.pop(ctx, 'camera'),
+                Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    leading: const Icon(Icons.camera_alt_outlined, color: AppColors.primary),
+                    title: const Text('Retake with In-App Camera'),
+                    onTap: () => Navigator.pop(ctx, 'camera'),
+                  ),
                 ),
-                ListTile(
-                  leading: const Icon(Icons.photo_library_outlined, color: AppColors.primary),
-                  title: const Text('Choose from Gallery'),
-                  onTap: () => Navigator.pop(ctx, 'gallery'),
+                Material(
+                  color: Colors.transparent,
+                  child: ListTile(
+                    leading: const Icon(Icons.photo_library_outlined, color: AppColors.primary),
+                    title: const Text('Choose from Gallery'),
+                    onTap: () => Navigator.pop(ctx, 'gallery'),
+                  ),
                 ),
               ],
             ),
@@ -818,11 +830,15 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       }
 
       // Generate Receipt PDF for 1 single lease order
+      debugPrint('--> [CreateLease] BEFORE generateReceiptForLease. Lease ID: ${createdLease.id}, status: ${createdLease.status}, leaseItems count: ${createdLease.leaseItems.length}');
+      debugPrint('--> [store] BEFORE generateReceiptForLease. ${store.toJson()} ');
+      debugPrint('--> [createdLease] BEFORE generateReceiptForLease. ${createdLease.toJson()} ');
       final pdfFile = await PdfReceiptService.instance.generateReceiptForLease(
         store: store,
         lease: createdLease,
         multiItemLeases: [createdLease],
       );
+      debugPrint('--> [CreateLease] AFTER generateReceiptForLease. PDF file path: ${pdfFile.path}, exists: ${pdfFile.existsSync()}');
 
       if (!mounted) return;
 
@@ -1211,22 +1227,25 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                               const SizedBox(height: 4),
                               ...line.loadedSubItems.where((s) => s.isAvailable).map((sub) {
                                 final isSubSelected = line.selectedSubItemIds.contains(sub.id);
-                                return CheckboxListTile(
-                                  value: isSubSelected,
-                                  dense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  activeColor: AppColors.primary,
-                                  title: Text(sub.name, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                  subtitle: Text(sub.serialNumber != null ? 'SN: ${sub.serialNumber}' : sub.displaySku, style: const TextStyle(fontSize: 9)),
-                                  onChanged: (check) {
-                                    setState(() {
-                                      if (check == true) {
-                                        line.selectedSubItemIds.add(sub.id);
-                                      } else {
-                                        line.selectedSubItemIds.remove(sub.id);
-                                      }
-                                    });
-                                  },
+                                return Material(
+                                  color: Colors.transparent,
+                                  child: CheckboxListTile(
+                                    value: isSubSelected,
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    activeColor: AppColors.primary,
+                                    title: Text(sub.name, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    subtitle: Text(sub.serialNumber != null ? 'SN: ${sub.serialNumber}' : sub.displaySku, style: const TextStyle(fontSize: 9)),
+                                    onChanged: (check) {
+                                      setState(() {
+                                        if (check == true) {
+                                          line.selectedSubItemIds.add(sub.id);
+                                        } else {
+                                          line.selectedSubItemIds.remove(sub.id);
+                                        }
+                                      });
+                                    },
+                                  ),
                                 );
                               }),
                             ],

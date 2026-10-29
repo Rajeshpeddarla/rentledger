@@ -725,7 +725,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? 'RETURNED'
         : (isOverdue ? 'OVERDUE' : lease.status.toUpperCase());
 
-    final String itemName = '${lease.quantity > 1 ? '${lease.quantity}x ' : ''}${lease.item?.name ?? "Equipment Item"}';
+    final String itemName = lease.itemNamesSummary;
 
     return InkWell(
       onTap: () {

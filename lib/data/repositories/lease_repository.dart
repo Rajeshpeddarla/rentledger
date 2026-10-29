@@ -58,7 +58,55 @@ class LeaseRepository {
           _leases.addAll(list);
           return list;
         } catch (fErr) {
-          debugPrint('LeaseRepository.getLeases error: $fErr');
+          // Fallback 2: fetch lease_items without embedding inventory_items inside lease_items if FK is missing
+          try {
+            var fallbackQuery2 = _client
+                .from('leases')
+                .select('*, inventory_items(*), customers(*), lease_items(*)')
+                .eq('store_id', user.id);
+
+            if (status != null && status != 'all') {
+              fallbackQuery2 = fallbackQuery2.eq('status', status);
+            }
+            if (itemId != null) {
+              fallbackQuery2 = fallbackQuery2.eq('item_id', itemId);
+            }
+
+            final data = await fallbackQuery2.order('start_time', ascending: false);
+            final list = (data as List)
+                .map((e) => LeaseModel.fromJson(e as Map<String, dynamic>))
+                .toList();
+
+            _leases.clear();
+            _leases.addAll(list);
+            return list;
+          } catch (fErr2) {
+            // Fallback 3: basic leases query with direct inventory_items & customers
+            try {
+              var fallbackQuery3 = _client
+                  .from('leases')
+                  .select('*, inventory_items(*), customers(*)')
+                  .eq('store_id', user.id);
+
+              if (status != null && status != 'all') {
+                fallbackQuery3 = fallbackQuery3.eq('status', status);
+              }
+              if (itemId != null) {
+                fallbackQuery3 = fallbackQuery3.eq('item_id', itemId);
+              }
+
+              final data = await fallbackQuery3.order('start_time', ascending: false);
+              final list = (data as List)
+                  .map((e) => LeaseModel.fromJson(e as Map<String, dynamic>))
+                  .toList();
+
+              _leases.clear();
+              _leases.addAll(list);
+              return list;
+            } catch (fErr3) {
+              debugPrint('LeaseRepository.getLeases error: $fErr3');
+            }
+          }
         }
       }
     }
