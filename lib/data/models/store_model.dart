@@ -20,6 +20,11 @@ class StoreModel extends Equatable {
   final bool isAccountSecured;
   final bool isSuspended;
 
+  // Worldwide Tax Business Registration Fields
+  final String taxRegistrationStatus; // 'registered', 'not_registered', 'unsure'
+  final String? taxRegistrationNumber; // Generic field for GSTIN, VAT, ABN, EIN/Sales Tax ID
+  final bool showTaxOnReceipts;
+
   // Loyalty Program Settings
   final int loyaltyExpiryDays;
   final DateTime? loyaltyExpiryLockedUntil;
@@ -56,6 +61,9 @@ class StoreModel extends Equatable {
     this.subscriptionExpiresAt,
     this.isAccountSecured = false,
     this.isSuspended = false,
+    this.taxRegistrationStatus = 'not_registered',
+    this.taxRegistrationNumber,
+    this.showTaxOnReceipts = true,
     this.loyaltyExpiryDays = 90,
     this.loyaltyExpiryLockedUntil,
     this.loyaltyEarnRatePerHour = 1.0,
@@ -72,6 +80,15 @@ class StoreModel extends Equatable {
   bool get isPro => planTier == 'pro_monthly' || planTier == 'pro_annual';
 
   int get daysPerWeek => enableWeekendLease ? 7 : 6;
+
+  int get effectiveDaysPerMonth {
+    if (!enableWeekendLease && (daysPerMonth == 28 || daysPerMonth <= 0)) {
+      return 24; // 4 weeks x 6 working days
+    }
+    return daysPerMonth <= 0 ? (enableWeekendLease ? 28 : 24) : daysPerMonth;
+  }
+
+  bool get isTaxRegistered => taxRegistrationStatus == 'registered' && (taxRegistrationNumber != null && taxRegistrationNumber!.trim().isNotEmpty);
 
   bool get isLoyaltyExpiryLocked =>
       loyaltyExpiryLockedUntil != null && DateTime.now().isBefore(loyaltyExpiryLockedUntil!);
@@ -93,11 +110,6 @@ class StoreModel extends Equatable {
       (ownerName != null && ownerName!.trim().isNotEmpty) ||
       (ownerPhone != null && ownerPhone!.trim().isNotEmpty);
 
-  /// Profile completion formula:
-  /// - Store Info (Phone / Address): 25%
-  /// - UPI ID / Payment QR: 25%
-  /// - Owner Details (Name / Phone): 25%
-  /// - Account Secured (Email & Password linked): 25%
   int get profileCompletionPercentage {
     int score = 0;
     if (isStoreInfoComplete) score += 25;
@@ -138,6 +150,9 @@ class StoreModel extends Equatable {
           : null,
       isAccountSecured: json['is_account_secured'] as bool? ?? false,
       isSuspended: json['is_suspended'] as bool? ?? false,
+      taxRegistrationStatus: json['tax_registration_status'] as String? ?? 'not_registered',
+      taxRegistrationNumber: json['tax_registration_number'] as String?,
+      showTaxOnReceipts: json['show_tax_on_receipts'] as bool? ?? true,
       loyaltyExpiryDays: (json['loyalty_expiry_days'] as num?)?.toInt() ?? 90,
       loyaltyExpiryLockedUntil: json['loyalty_expiry_locked_until'] != null
           ? DateTime.tryParse(json['loyalty_expiry_locked_until'] as String)
@@ -178,6 +193,9 @@ class StoreModel extends Equatable {
       'subscription_expires_at': subscriptionExpiresAt?.toIso8601String(),
       'is_account_secured': isAccountSecured,
       'is_suspended': isSuspended,
+      'tax_registration_status': taxRegistrationStatus,
+      'tax_registration_number': taxRegistrationNumber,
+      'show_tax_on_receipts': showTaxOnReceipts,
       'loyalty_expiry_days': loyaltyExpiryDays,
       'loyalty_expiry_locked_until': loyaltyExpiryLockedUntil?.toIso8601String(),
       'loyalty_earn_rate_per_hour': loyaltyEarnRatePerHour,
@@ -211,6 +229,9 @@ class StoreModel extends Equatable {
     DateTime? subscriptionExpiresAt,
     bool? isAccountSecured,
     bool? isSuspended,
+    String? taxRegistrationStatus,
+    String? taxRegistrationNumber,
+    bool? showTaxOnReceipts,
     int? loyaltyExpiryDays,
     DateTime? loyaltyExpiryLockedUntil,
     double? loyaltyEarnRatePerHour,
@@ -243,6 +264,9 @@ class StoreModel extends Equatable {
           subscriptionExpiresAt ?? this.subscriptionExpiresAt,
       isAccountSecured: isAccountSecured ?? this.isAccountSecured,
       isSuspended: isSuspended ?? this.isSuspended,
+      taxRegistrationStatus: taxRegistrationStatus ?? this.taxRegistrationStatus,
+      taxRegistrationNumber: taxRegistrationNumber ?? this.taxRegistrationNumber,
+      showTaxOnReceipts: showTaxOnReceipts ?? this.showTaxOnReceipts,
       loyaltyExpiryDays: loyaltyExpiryDays ?? this.loyaltyExpiryDays,
       loyaltyExpiryLockedUntil: loyaltyExpiryLockedUntil ?? this.loyaltyExpiryLockedUntil,
       loyaltyEarnRatePerHour: loyaltyEarnRatePerHour ?? this.loyaltyEarnRatePerHour,
@@ -277,6 +301,9 @@ class StoreModel extends Equatable {
         subscriptionExpiresAt,
         isAccountSecured,
         isSuspended,
+        taxRegistrationStatus,
+        taxRegistrationNumber,
+        showTaxOnReceipts,
         loyaltyExpiryDays,
         loyaltyExpiryLockedUntil,
         loyaltyEarnRatePerHour,

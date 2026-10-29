@@ -5,6 +5,8 @@ import '../../core/config/app_theme.dart';
 import '../../core/widgets/app_image_view.dart';
 import '../../data/models/inventory_item_model.dart';
 import '../../data/models/lease_model.dart';
+import '../../data/models/sub_item_model.dart';
+import '../../data/repositories/sub_item_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
@@ -60,7 +62,7 @@ class ItemDetailHistoryScreen extends StatelessWidget {
           final activeCount = itemLeases
               .where((l) => l.status == 'active')
               .fold<int>(0, (sum, l) => sum + l.quantity);
-          final availableCount = (item.totalQuantity - activeCount).clamp(0, item.totalQuantity);
+          final availableCount = item.availableQuantity;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -169,6 +171,11 @@ class ItemDetailHistoryScreen extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
+                // Sub-Items Fleet Card (Displayed above Item Lifetime Revenue row)
+                _buildSubItemsListCard(context, item.id, isDark),
+
+                const SizedBox(height: 16),
+
                 // Financial Telemetry for this Item
                 Row(
                   children: [
@@ -244,8 +251,8 @@ class ItemDetailHistoryScreen extends StatelessWidget {
                             ),
                           );
                         },
-                  icon: const Icon(Icons.send_rounded, size: 18,color: Colors.white),
-                  label: Text(item.availableQuantity > 0 ? 'Rent Out / Dispatch This Item' : 'All Units Currently Leased',style: TextStyle(color: Colors.white),),
+                  icon: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
+                  label: Text(item.availableQuantity > 0 ? 'Rent Out / Dispatch This Item' : 'All Units Currently Leased', style: const TextStyle(color: Colors.white)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     minimumSize: const Size.fromHeight(48),
@@ -377,6 +384,140 @@ class ItemDetailHistoryScreen extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildSubItemsListCard(BuildContext context, String itemId, bool isDark) {
+    return FutureBuilder<List<SubItemModel>>(
+      future: SubItemRepository().getSubItems(parentItemId: itemId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            height: 60,
+            alignment: Alignment.center,
+            child: const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+
+        final subItems = snapshot.data ?? [];
+
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkCard : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.format_list_bulleted, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Sub-Items (${subItems.length})',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'Unit Tracking',
+                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              if (subItems.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'No serial-tracked sub-items registered for this asset.',
+                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: subItems.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final sub = subItems[index];
+
+                    Color badgeBg;
+                    Color badgeText;
+                    String statusLabel;
+
+                    if (sub.isAvailable) {
+                      badgeBg = isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5);
+                      badgeText = AppColors.primaryLight;
+                      statusLabel = 'READY';
+                    } else if (sub.isLeased) {
+                      badgeBg = const Color(0xFFEFF4FF);
+                      badgeText = AppColors.primary;
+                      statusLabel = 'LEASED';
+                    } else if (sub.isAwaitingInspection || sub.isMaintenance) {
+                      badgeBg = const Color(0xFFFFF6E5);
+                      badgeText = AppColors.tertiaryAmber;
+                      statusLabel = sub.isMaintenance ? 'REPAIR' : 'INSPECTION';
+                    } else {
+                      badgeBg = const Color(0xFFFFDAD6);
+                      badgeText = AppColors.errorRed;
+                      statusLabel = 'LOST';
+                    }
+
+                    return Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(sub.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                                Text(
+                                  sub.serialNumber != null && sub.serialNumber!.isNotEmpty
+                                      ? 'SN: ${sub.serialNumber}'
+                                      : sub.displaySku,
+                                  style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: badgeBg,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              statusLabel,
+                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: badgeText),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 

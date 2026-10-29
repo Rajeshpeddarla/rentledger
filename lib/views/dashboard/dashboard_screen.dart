@@ -3,7 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/config/app_theme.dart';
+import '../../core/services/pdf_receipt_service.dart';
 import '../../data/models/lease_model.dart';
+import '../../data/models/store_model.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
@@ -11,6 +13,7 @@ import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
 import '../../viewmodels/lease/lease_state.dart';
 import '../../viewmodels/theme/theme_cubit.dart';
+import '../analytics/store_performance_screen.dart';
 import '../inventory/add_edit_item_screen.dart';
 import '../lease/create_lease_screen.dart';
 import '../lease/take_back_settlement_screen.dart';
@@ -156,6 +159,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           actions: [
+            // Store Performance Analytics Button
+            IconButton(
+              icon: Icon(
+                Icons.analytics_outlined,
+                size: 22,
+                color: isDark ? AppColors.primaryLight : AppColors.slateNavy,
+              ),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const StorePerformanceScreen()),
+                );
+              },
+              tooltip: 'Store Performance Analytics',
+            ),
             // Theme Mode Toggle
             IconButton(
               icon: Icon(
@@ -335,19 +352,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
               ),
             ),
-            Row(
-              children: [
-                Icon(Icons.sync, size: 14, color: isDark ? AppColors.primaryLight : AppColors.primary),
-                const SizedBox(width: 4),
-                Text(
-                  'Realtime Ledger',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? AppColors.primaryLight : AppColors.primary,
-                  ),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const StorePerformanceScreen()),
+                );
+              },
+              icon: Icon(Icons.show_chart, size: 14, color: isDark ? AppColors.primaryLight : AppColors.primary),
+              label: Text(
+                'Analytics ➔',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppColors.primaryLight : AppColors.primary,
                 ),
-              ],
+              ),
             ),
           ],
         ),
@@ -397,7 +416,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _buildTelemetryCard(
               title: 'Deposits Held',
               value: '$currency${NumberFormat('#,##0').format(depositsHeld)}',
-              subtitle: 'Refundable on Return',
+              subtitle: '100% Escrowed',
               icon: Icons.lock_clock_outlined,
               iconColor: AppColors.primary,
               iconBg: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
@@ -706,19 +725,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? 'RETURNED'
         : (isOverdue ? 'OVERDUE' : lease.status.toUpperCase());
 
-    String itemName = lease.item?.name ?? 'Equipment Item';
-    if (lease.returnNotes != null && lease.returnNotes!.contains('Leased Equipment Items:')) {
-      final noteStr = lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
-      if (noteStr.isNotEmpty) itemName = noteStr;
-    }
+    final String itemName = '${lease.quantity > 1 ? '${lease.quantity}x ' : ''}${lease.item?.name ?? "Equipment Item"}';
 
     return InkWell(
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TakeBackSettlementScreen(lease: lease),
-          ),
-        );
+        final storeState = context.read<StoreCubit>().state;
+        final store = storeState is StoreLoaded ? storeState.store : null;
+
+        if (isReturned) {
+          _showReadOnlySettlementDetailsModal(context, lease, store, isDark);
+        } else {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => TakeBackSettlementScreen(lease: lease),
+            ),
+          );
+        }
       },
       borderRadius: BorderRadius.circular(10),
       child: Container(
@@ -801,6 +823,199 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  void _showReadOnlySettlementDetailsModal(BuildContext context, LeaseModel lease, StoreModel? store, bool isDark) {
+    final currency = store?.currencySymbol ?? '₹';
+    final returnTime = lease.actualReturnTime ?? lease.updatedAt;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (modalCtx) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkBorder : Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.verified, color: AppColors.primaryLight, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Returned Lease Summary',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Settlement ID: SR-${lease.shortId} • Completed & Closed',
+                          style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('RETURNED', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Details Panel
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow('Rented Equipment', '${lease.quantity}x ${lease.item?.name ?? "Equipment"}', isDark),
+                    const SizedBox(height: 6),
+                    _buildDetailRow('Client Name', lease.customer?.name ?? 'Customer', isDark),
+                    const SizedBox(height: 6),
+                    _buildDetailRow('Client Phone', lease.customer?.phone ?? '-', isDark),
+                    const SizedBox(height: 6),
+                    _buildDetailRow('Handover Date', DateFormat('dd MMM yyyy, hh:mm a').format(lease.startTime), isDark),
+                    const SizedBox(height: 6),
+                    _buildDetailRow('Returned On', DateFormat('dd MMM yyyy, hh:mm a').format(returnTime), isDark),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Financial Summary Panel
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailRow('Base Rent Charges', '$currency${lease.calculatedRent.toStringAsFixed(2)}', isDark),
+                    if (lease.discountAmount > 0) ...[
+                      const SizedBox(height: 4),
+                      _buildDetailRow('Discount Applied', '-$currency${lease.discountAmount.toStringAsFixed(2)}', isDark, isGreen: true),
+                    ],
+                    if (lease.damageOrLateFee > 0) ...[
+                      const SizedBox(height: 4),
+                      _buildDetailRow('Damage / Late Fee', '+$currency${lease.damageOrLateFee.toStringAsFixed(2)}', isDark, isRed: true),
+                    ],
+                    const SizedBox(height: 6),
+                    const Divider(),
+                    const SizedBox(height: 6),
+                    _buildDetailRow('Total Net Rent Paid', '$currency${lease.netRentTotal.toStringAsFixed(2)}', isDark, isBold: true),
+                    const SizedBox(height: 4),
+                    _buildDetailRow('Upfront Deposit Paid', '$currency${lease.depositPaid.toStringAsFixed(2)}', isDark),
+                  ],
+                ),
+              ),
+
+              if (lease.returnNotes != null && lease.returnNotes!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Return Notes & Condition:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                const SizedBox(height: 4),
+                Text(
+                  lease.returnNotes!,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        if (store == null) return;
+                        final pdfFile = await PdfReceiptService.instance.generateReturnSettlementReceipt(store: store, lease: lease);
+                        await PdfReceiptService.instance.printReceipt(pdfFile);
+                      },
+                      icon: const Icon(Icons.print_outlined, size: 18),
+                      label: const Text('Print Settlement PDF', style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        if (store == null) return;
+                        final pdfFile = await PdfReceiptService.instance.generateReturnSettlementReceipt(store: store, lease: lease);
+                        final msg = 'Return settlement receipt for ${lease.item?.name} from ${store.businessName}';
+                        await PdfReceiptService.instance.shareReceipt(pdfFile, msg);
+                      },
+                      icon: const Icon(Icons.share, size: 18),
+                      label: const Text('Share PDF', style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, bool isDark, {bool isBold = false, bool isGreen = false, bool isRed = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            color: isGreen ? AppColors.primaryLight : (isRed ? AppColors.errorRed : (isDark ? Colors.white : AppColors.lightOnSurface)),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildImmediateAttentionSection(BuildContext context, bool isDark) {
     final storeState = context.watch<StoreCubit>().state;
     final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
@@ -816,7 +1031,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ...state.dueTodayLeases,
         ];
 
-        // Deduplicate
         final uniqueLeases = attentionLeases.toSet().toList();
 
         return Column(
@@ -907,11 +1121,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final isOverdue = lease.isOverdue;
                   final phone = lease.customer?.phone.trim() ?? '';
 
-                  String itemName = lease.item?.name ?? 'Equipment Item';
-                  if (lease.returnNotes != null && lease.returnNotes!.contains('Leased Equipment Items:')) {
-                    final noteStr = lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
-                    if (noteStr.isNotEmpty) itemName = noteStr;
-                  }
+                  final String itemName = '${lease.quantity > 1 ? '${lease.quantity}x ' : ''}${lease.item?.name ?? "Equipment Item"}';
 
                   return Container(
                     padding: const EdgeInsets.all(12),
@@ -996,7 +1206,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Text(
                               'Deposit held: $currency${lease.depositPaid.toStringAsFixed(0)}',
                               style: TextStyle(
-                                 fontSize: 11,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
                               ),

@@ -29,20 +29,26 @@ class InventoryRepository {
 
         final data = await query.order('created_at', ascending: false);
 
-        // Fetch active leases count per item in realtime using exact quantity
+        // Fetch active/reserved lease counts per item in realtime
         final Map<String, int> activeCounts = {};
+        final Map<String, int> reservedCounts = {};
         try {
-          final activeLeasesData = await _client
+          final leasesData = await _client
               .from('leases')
-              .select('item_id, quantity')
+              .select('item_id, quantity, status')
               .eq('store_id', user.id)
-              .eq('status', 'active');
+              .or('status.eq.active,status.eq.reserved,status.eq.upcoming');
 
-          for (final row in (activeLeasesData as List)) {
+          for (final row in (leasesData as List)) {
             final iId = row['item_id'] as String?;
             final qty = (row['quantity'] as num?)?.toInt() ?? 1;
+            final st = row['status'] as String?;
             if (iId != null) {
-              activeCounts[iId] = (activeCounts[iId] ?? 0) + qty;
+              if (st == 'active') {
+                activeCounts[iId] = (activeCounts[iId] ?? 0) + qty;
+              } else if (st == 'reserved' || st == 'upcoming') {
+                reservedCounts[iId] = (reservedCounts[iId] ?? 0) + qty;
+              }
             }
           }
         } catch (e) {
@@ -52,8 +58,12 @@ class InventoryRepository {
         final list = (data as List)
             .map((e) {
               final it = InventoryItemModel.fromJson(e as Map<String, dynamic>);
-              final count = activeCounts[it.id] ?? 0;
-              return it.copyWith(activeLeasesCount: count);
+              final activeCount = activeCounts[it.id] ?? 0;
+              final reservedCount = reservedCounts[it.id] ?? 0;
+              return it.copyWith(
+                activeLeasesCount: activeCount,
+                reservedCount: reservedCount,
+              );
             })
             .toList();
 
@@ -111,7 +121,7 @@ class InventoryRepository {
     final user = _client.auth.currentUser;
     if (user != null) {
       try {
-        final payload = item.copyWith(storeId: user.id).toJson();
+        final payload = item.copyWith(storeId: user.id).toDatabaseJson();
         final res = await _client
             .from('inventory_items')
             .upsert(payload)
@@ -138,6 +148,21 @@ class InventoryRepository {
       _items.insert(0, item);
     }
     return item;
+  }
+
+  Future<InventoryItemModel> restockItem(String itemId, {int quantity = 1}) async {
+    final item = await getItemById(itemId);
+    if (item != null) {
+      final newLost = (item.lostCount - quantity) < 0 ? 0 : (item.lostCount - quantity);
+      final newMaintenance = (item.maintenanceCount - quantity) < 0 ? 0 : (item.maintenanceCount - quantity);
+      final updated = item.copyWith(
+        lostCount: newLost,
+        maintenanceCount: newMaintenance,
+        updatedAt: DateTime.now(),
+      );
+      return await saveItem(updated, isPro: true);
+    }
+    throw Exception('Item not found');
   }
 
   Future<void> archiveItem(String id) async {

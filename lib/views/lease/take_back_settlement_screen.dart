@@ -4,21 +4,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/config/app_theme.dart';
-import '../../core/services/admob_service.dart';
 import '../../core/services/pdf_receipt_service.dart';
 import '../../core/utils/rate_calculator.dart';
-import '../../core/utils/whatsapp_launcher.dart';
-import '../../core/widgets/app_image_view.dart';
 import '../../data/models/discount_model.dart';
 import '../../data/models/inventory_item_model.dart';
 import '../../data/models/lease_model.dart';
 import '../../data/models/store_model.dart';
+import '../../data/models/sub_item_model.dart';
+import '../../data/repositories/sub_item_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/discount/discount_cubit.dart';
 import '../../viewmodels/discount/discount_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
-import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
 
 class TakeBackSettlementScreen extends StatefulWidget {
@@ -32,25 +30,43 @@ class TakeBackSettlementScreen extends StatefulWidget {
 
 class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   late DateTime _actualReturnTime;
-  bool _inspectionPassed = true;
-  final String _billingMode = 'auto'; // 'auto', 'hourly', 'daily'
+
+  final String _billingMode = 'auto'; // 'auto', 'hourly', 'daily', 'weekly', 'monthly'
+  String _returnStatus = 'available'; // 'available', 'awaiting_inspection', 'maintenance', 'lost'
+
+  // Sub-items tracking for this lease item
+  List<SubItemModel> _subItems = [];
+  final Map<String, String> _subItemStatusMap = {};
 
   final TextEditingController _discountController = TextEditingController(text: '0');
   final TextEditingController _damageFeeController = TextEditingController(text: '0');
   final TextEditingController _notesController = TextEditingController();
 
+  DiscountModel? _appliedDiscount;
+
+  RentalBreakdown? _breakdown;
   double _calculatedRent = 0.0;
   double _netRent = 0.0;
   double _finalBalance = 0.0;
   bool _isSettling = false;
-  DiscountModel? _selectedDiscount;
-  RentalBreakdown? _breakdown;
 
   @override
   void initState() {
     super.initState();
     _actualReturnTime = DateTime.now();
     _recalculate();
+
+    // Load sub-items for this equipment item
+    SubItemRepository().getSubItems(parentItemId: widget.lease.itemId).then((list) {
+      if (mounted && list.isNotEmpty) {
+        setState(() {
+          _subItems = list;
+          for (final s in list) {
+            _subItemStatusMap[s.id] = 'available';
+          }
+        });
+      }
+    });
   }
 
   @override
@@ -62,70 +78,66 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   }
 
   String _getLeaseItemDisplayName() {
-    if (widget.lease.returnNotes != null && widget.lease.returnNotes!.contains('Leased Equipment Items:')) {
-      final noteStr = widget.lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
-      if (noteStr.isNotEmpty) return noteStr;
-    }
-    return widget.lease.item?.name ?? 'Equipment Item';
+    return widget.lease.itemNamesSummary;
   }
 
   void _recalculate() {
-    InventoryItemModel? item = widget.lease.item;
-    if (item == null) {
-      try {
-        final invState = context.read<InventoryCubit>().state;
-        if (invState is InventoryLoaded) {
-          item = invState.allItems.firstWhere((i) => i.id == widget.lease.itemId);
-        }
-      } catch (_) {}
-    }
+    double totalCalculated = 0.0;
 
-    double singleUnitRent = 0.0;
-    if (item != null) {
+    if (widget.lease.leaseItems.isNotEmpty) {
+      for (final li in widget.lease.leaseItems) {
+        final b = RateCalculator.getReturnRentBreakdown(
+          startTime: widget.lease.startTime,
+          actualReturnTime: _actualReturnTime,
+          rateHourly: li.rateHourly > 0 ? li.rateHourly : (li.item?.rateHourly ?? 0.0),
+          rateDaily: li.rateDaily > 0 ? li.rateDaily : (li.item?.rateDaily ?? 0.0),
+          rateWeekly: li.rateWeekly > 0 ? li.rateWeekly : (li.item?.rateWeekly ?? 0.0),
+          rateMonthly: li.rateMonthly > 0 ? li.rateMonthly : (li.item?.rateMonthly ?? 0.0),
+        );
+        totalCalculated += (b.totalRent * li.quantity);
+      }
       _breakdown = RateCalculator.getReturnRentBreakdown(
         startTime: widget.lease.startTime,
         actualReturnTime: _actualReturnTime,
-        rateHourly: item.rateHourly,
-        rateDaily: item.rateDaily,
-        rateWeekly: item.rateWeekly,
-        rateMonthly: item.rateMonthly,
-        billingMode: _billingMode,
+        rateHourly: widget.lease.leaseItems.first.rateHourly,
+        rateDaily: widget.lease.leaseItems.first.rateDaily,
+        rateWeekly: widget.lease.leaseItems.first.rateWeekly,
+        rateMonthly: widget.lease.leaseItems.first.rateMonthly,
       );
-      singleUnitRent = _breakdown!.totalRent;
     } else {
-      singleUnitRent = widget.lease.calculatedRent > 0 ? widget.lease.calculatedRent : 0.0;
+      InventoryItemModel? item = widget.lease.item;
+      if (item != null) {
+        _breakdown = RateCalculator.getReturnRentBreakdown(
+          startTime: widget.lease.startTime,
+          actualReturnTime: _actualReturnTime,
+          rateHourly: item.rateHourly,
+          rateDaily: item.rateDaily,
+          rateWeekly: item.rateWeekly,
+          rateMonthly: item.rateMonthly,
+        );
+        totalCalculated = _breakdown!.totalRent * widget.lease.quantity;
+      } else {
+        totalCalculated = widget.lease.calculatedRent;
+      }
     }
 
-    _calculatedRent = singleUnitRent * widget.lease.quantity;
+    _calculatedRent = totalCalculated;
 
-    if (_selectedDiscount != null) {
-      final discountAmt = _selectedDiscount!.calculateDiscountAmount(_calculatedRent);
-      _discountController.text = discountAmt.toStringAsFixed(2);
-    }
+    final discountVal = double.tryParse(_discountController.text) ?? 0.0;
+    final damageFeeVal = double.tryParse(_damageFeeController.text) ?? 0.0;
 
-    final discount = double.tryParse(_discountController.text) ?? 0.0;
-    final damageFee = double.tryParse(_damageFeeController.text) ?? 0.0;
+    _netRent = (_calculatedRent - discountVal + damageFeeVal);
+    if (_netRent < 0) _netRent = 0.0;
 
-    _netRent = RateCalculator.calculateNetRent(
-      calculatedRent: _calculatedRent,
-      discount: discount,
-      damageOrLateFee: damageFee,
-    );
-
-    _finalBalance = RateCalculator.calculateSettlementBalance(
-      netRentDue: _netRent,
-      depositPaid: widget.lease.depositPaid,
-      advanceRentPaid: widget.lease.advanceRentPaid,
-    );
-
-    if (mounted) setState(() {});
+    final totalUpfrontCredit = widget.lease.depositPaid + widget.lease.advanceRentPaid;
+    _finalBalance = _netRent - totalUpfrontCredit;
   }
 
-  Future<void> _selectActualReturnDateTime() async {
+  Future<void> _selectReturnDateTime() async {
     final pickedDate = await showDatePicker(
       context: context,
       initialDate: _actualReturnTime,
-      firstDate: widget.lease.startTime.subtract(const Duration(days: 1)),
+      firstDate: widget.lease.startTime,
       lastDate: DateTime.now().add(const Duration(days: 30)),
     );
     if (pickedDate == null) return;
@@ -172,7 +184,58 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
 
       final settled = await context.read<LeaseCubit>().returnAndSettle(updatedLease);
 
-      // Reload inventory so available quantity immediately increments (e.g. 4/5 -> 5/5 Available)
+      // Update sub-items and parent item's stock status counts in database
+      final subItemRepo = SubItemRepository();
+      int subMaintCount = 0;
+      int subLostCount = 0;
+      int subAwaitingCount = 0;
+
+      if (_subItems.isNotEmpty) {
+        for (final sub in _subItems) {
+          final status = _subItemStatusMap[sub.id] ?? 'available';
+          await subItemRepo.updateSubItemStatus(subItemId: sub.id, newStatus: status);
+          if (status == 'maintenance') subMaintCount++;
+          if (status == 'lost') subLostCount++;
+          if (status == 'awaiting_inspection') subAwaitingCount++;
+        }
+      }
+
+      if (!mounted) return;
+      final inventoryCubit = context.read<InventoryCubit>();
+      final item = widget.lease.item;
+      if (item != null) {
+        if (_subItems.isNotEmpty) {
+          final updatedItem = item.copyWith(
+            maintenanceCount: item.maintenanceCount + subMaintCount,
+            lostCount: item.lostCount + subLostCount,
+            awaitingInspectionCount: item.awaitingInspectionCount + subAwaitingCount,
+            updatedAt: DateTime.now(),
+          );
+          await inventoryCubit.saveItem(updatedItem, isPro: true);
+        } else {
+          if (_returnStatus == 'maintenance') {
+            final updatedItem = item.copyWith(
+              maintenanceCount: item.maintenanceCount + widget.lease.quantity,
+              updatedAt: DateTime.now(),
+            );
+            await inventoryCubit.saveItem(updatedItem, isPro: true);
+          } else if (_returnStatus == 'lost') {
+            final updatedItem = item.copyWith(
+              lostCount: item.lostCount + widget.lease.quantity,
+              updatedAt: DateTime.now(),
+            );
+            await inventoryCubit.saveItem(updatedItem, isPro: true);
+          } else if (_returnStatus == 'awaiting_inspection') {
+            final updatedItem = item.copyWith(
+              awaitingInspectionCount: item.awaitingInspectionCount + widget.lease.quantity,
+              updatedAt: DateTime.now(),
+            );
+            await inventoryCubit.saveItem(updatedItem, isPro: true);
+          }
+        }
+      }
+
+      // Reload inventory so available quantities immediately update across all screens
       if (mounted) {
         context.read<InventoryCubit>().loadInventory();
       }
@@ -319,85 +382,41 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                   color: isDark ? Colors.white70 : AppColors.secondary,
                 ),
               ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final phone = lease.customer?.phone ?? '';
-                    final msg =
-                        'Rental return settlement from ${store.businessName} for ${_getLeaseItemDisplayName()}. Net rent: ${store.currencySymbol}${lease.netRentTotal}. Final balance: ${store.currencySymbol}${lease.finalSettlementBalance}. Thank you for renting with us!';
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final msg =
+                      'Hello ${lease.customer?.name ?? "Customer"}, here is your official return settlement statement from ${store.businessName} for ${lease.itemNamesSummary}. Final balance: ${store.currencySymbol}${lease.finalSettlementBalance.abs().toStringAsFixed(2)}. Thank you for renting with us!';
 
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    if (mounted) Navigator.pop(context);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) Navigator.pop(context);
 
-                    await WhatsAppLauncher.sendWhatsAppMessage(phone: phone, message: msg);
-                    await PdfReceiptService.instance.shareReceipt(pdfFile, msg);
-
-                    // AdMob interstitial check
-                    AdMobService.instance.showInterstitialIfEligible(isPro: store.isPro);
-                  },
-                  icon: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
-                  label: const Text('Send Settlement to WhatsApp', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366)),
-                ),
+                  await PdfReceiptService.instance.shareReceipt(pdfFile, msg);
+                },
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Share Settlement Statement via WhatsApp'),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366)),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => PdfReceiptService.instance.printReceipt(pdfFile),
-                  icon: Icon(Icons.print, size: 18, color: isDark ? Colors.white : AppColors.primary),
-                  label: Text('Print Receipt', style: TextStyle(color: isDark ? Colors.white : AppColors.primary, fontWeight: FontWeight.bold)),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                  ),
-                ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await PdfReceiptService.instance.printReceipt(pdfFile);
+                },
+                icon: const Icon(Icons.print_outlined, size: 18),
+                label: const Text('Print / Preview Statement'),
               ),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () {
-                  AdMobService.instance.showInterstitialIfEligible(isPro: store.isPro);
                   Navigator.pop(ctx);
                   Navigator.pop(context);
                 },
-                child: Text(
-                  'Back to Dashboard',
-                  style: TextStyle(color: isDark ? AppColors.primaryLight : AppColors.primary),
-                ),
+                child: const Text('Done & Return to Dashboard'),
               ),
             ],
           ),
         );
       },
-    );
-  }
-
-  Widget _buildConditionPhotoThumbnail(BuildContext context, String rawUrl, int idx, bool isDark) {
-    return AppImageView(
-      imagePathOrUrl: rawUrl,
-      width: 76,
-      height: 76,
-      fit: BoxFit.cover,
-      borderRadius: BorderRadius.circular(10),
-      enableZoom: true,
-      fallback: Container(
-        width: 76,
-        height: 76,
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.photo_outlined, size: 24, color: isDark ? AppColors.primaryLight : AppColors.primary),
-            const SizedBox(height: 2),
-            Text('#${idx + 1}', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-          ],
-        ),
-      ),
     );
   }
 
@@ -412,20 +431,12 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
     final days = duration.inDays;
     final hours = duration.inHours % 24;
 
-    final discountState = context.watch<DiscountCubit>().state;
-    final allDiscounts = discountState is DiscountLoaded ? discountState.discounts : <DiscountModel>[];
-    final durationDays = days < 1 ? 1 : days;
-    final applicableDiscounts = allDiscounts
-        .where((d) => d.matchesItem(itemId: widget.lease.itemId, durationDays: durationDays))
-        .toList();
-
-    final isEarly = _actualReturnTime.isBefore(widget.lease.expectedEndTime.subtract(const Duration(hours: 1)));
-    final isLate = widget.lease.isOverdue;
+    final String displayName = _getLeaseItemDisplayName();
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
       appBar: AppBar(
-        title: const Text('Item Return & Inspection'),
+        title: const Text('Return & Final Settlement'),
         elevation: 0,
         backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
       ),
@@ -434,51 +445,48 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Operational Context Strip
+            // Asset Summary Tile
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : AppColors.lightSurfaceLow,
-                borderRadius: BorderRadius.circular(12),
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.handyman, color: AppColors.primary, size: 26),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'LEASE INSPECTION & SETTLEMENT',
+                          displayName,
                           style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Client: ${widget.lease.customer?.name ?? "Customer"} (${widget.lease.customer?.phone ?? "-"}) • ${widget.lease.totalPieces} Pcs',
+                          style: TextStyle(
+                            fontSize: 11,
                             color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                            letterSpacing: 0.5,
                           ),
                         ),
-                        Text(
-                          'Lease #${widget.lease.shortId}',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                        ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryLight.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      isLate ? 'OVERDUE RETURN' : (isEarly ? 'EARLY RETURN' : 'ON TIME RETURN'),
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: isLate ? AppColors.errorRed : AppColors.primaryLight,
-                      ),
                     ),
                   ),
                 ],
@@ -487,7 +495,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
 
             const SizedBox(height: 14),
 
-            // Asset & Customer Summary Tile
+            // Actual Duration & Timeline Card
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -496,43 +504,37 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                 border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.handyman, color: AppColors.primary, size: 26),
+                      Row(
+                        children: [
+                          Icon(Icons.timer_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                          const SizedBox(width: 6),
+                          const Text('Rental Duration', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _getLeaseItemDisplayName(),
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              '${widget.lease.customer?.name ?? "Customer"} (${widget.lease.customer?.phone ?? "-"})',
-                              style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                            ),
-                          ],
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _breakdown?.durationText ?? "$days Day(s), $hours Hr(s)",
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Time Matrix
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -540,13 +542,13 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Handed Out', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                            Text('Handover Date', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
                             Text(DateFormat('dd MMM, hh:mm a').format(widget.lease.startTime), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                           ],
                         ),
                         InkWell(
-                          onTap: _selectActualReturnDateTime,
-                          borderRadius: BorderRadius.circular(6),
+                          onTap: _selectReturnDateTime,
+                          borderRadius: BorderRadius.circular(8),
                           child: Padding(
                             padding: const EdgeInsets.all(4),
                             child: Column(
@@ -604,8 +606,40 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                           style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
                     ],
                   ),
+                  const SizedBox(height: 10),
+
+                  // Master Quick Action: Select All Arrived in Good Condition
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _returnStatus = 'available';
+                          for (final key in _subItemStatusMap.keys) {
+                            _subItemStatusMap[key] = 'available';
+                          }
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('All items & sub-items marked as Ready / Good Condition!'),
+                            backgroundColor: AppColors.primary,
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.done_all, size: 16),
+                      label: const Text('Select All Arrived in Good Condition', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+
                   if (widget.lease.beforePhotoUrls.isNotEmpty) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     Text(
                       'Photos Taken When Leasing:',
                       style: TextStyle(
@@ -630,23 +664,102 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 10),
-                  // Inspection passed toggle
-                  Material(
-                    color: Colors.transparent,
-                    child: SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Inspection Passed', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Zero damages, missing parts, or unreturned accessories.', style: TextStyle(fontSize: 11)),
-                      value: _inspectionPassed,
-                      activeThumbColor: AppColors.primary,
-                      onChanged: (val) {
-                        setState(() {
-                          _inspectionPassed = val;
-                        });
+                  const SizedBox(height: 12),
+
+                  // Individual Sub-Items Inspection Dropdowns if sub-items exist
+                  if (_subItems.isNotEmpty) ...[
+                    Text('Sub-Items Inspection & Return Status', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _subItems.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final sub = _subItems[index];
+                        final currentSt = _subItemStatusMap[sub.id] ?? 'available';
+
+                        return Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(sub.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    Text(sub.serialNumber != null && sub.serialNumber!.isNotEmpty ? 'SN: ${sub.serialNumber}' : sub.displaySku,
+                                        style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              DropdownButton<String>(
+                                value: currentSt,
+                                underline: const SizedBox.shrink(),
+                                items: const [
+                                  DropdownMenuItem(value: 'available', child: Text('Ready', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryLight))),
+                                  DropdownMenuItem(value: 'awaiting_inspection', child: Text('Inspection', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber))),
+                                  DropdownMenuItem(value: 'maintenance', child: Text('Damaged', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber))),
+                                  DropdownMenuItem(value: 'lost', child: Text('Lost', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed))),
+                                ],
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() {
+                                      _subItemStatusMap[sub.id] = val;
+                                    });
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        );
                       },
                     ),
-                  ),
+                  ] else ...[
+                    // Stock Return Status Dropdown Selector for Parent Item
+                    Text('Stock Return Status', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      initialValue: _returnStatus,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.inventory_2_outlined),
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'available',
+                          child: Text('Available (Inspected & Ready to Rent)', style: TextStyle(fontSize: 12)),
+                        ),
+                        DropdownMenuItem(
+                          value: 'awaiting_inspection',
+                          child: Text('Awaiting Inspection (Pending Testing)', style: TextStyle(fontSize: 12)),
+                        ),
+                        DropdownMenuItem(
+                          value: 'maintenance',
+                          child: Text('Maintenance (Damaged / Under Repair)', style: TextStyle(fontSize: 12)),
+                        ),
+                        DropdownMenuItem(
+                          value: 'lost',
+                          child: Text('Lost / Unreturned (Need Restock)', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _returnStatus = val;
+                          });
+                        }
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -750,286 +863,301 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                               ),
                             ),
                             Text(
-                              widget.lease.quantity > 1
-                                  ? '$currency${comp.amount.toStringAsFixed(2)} / pc\n($currency${compSubtotal.toStringAsFixed(2)})'
-                                  : '$currency${comp.amount.toStringAsFixed(2)}',
+                              '$currency${compSubtotal.toStringAsFixed(2)}',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                              textAlign: TextAlign.right,
                             ),
                           ],
                         ),
                       );
                     }),
-                    if (widget.lease.quantity > 1) ...[
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Multi-Piece Calculation:\n${widget.lease.quantity} pcs × $currency${(_breakdown?.totalRent ?? (widget.lease.quantity > 0 ? _calculatedRent / widget.lease.quantity : 0)).toStringAsFixed(2)} / pc',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? AppColors.primaryLight : AppColors.primary),
-                              ),
-                            ),
-                            Text(
-                              'Total: $currency${_calculatedRent.toStringAsFixed(2)}',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: isDark ? AppColors.primaryLight : AppColors.primary),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 6),
                     Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                     const SizedBox(height: 6),
-                  ] else ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Base Calculated Rent ($_billingMode)', style: const TextStyle(fontSize: 13)),
-                        Text('$currency${_calculatedRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
                   ],
 
-                  // Line 2: Discount Input / Dropdown
-                  Row(
-                    children: [
-                      const Expanded(child: Text('Discount / Voucher (-)', style: TextStyle(fontSize: 13))),
-                      SizedBox(
-                        width: 100,
-                        child: TextField(
-                          controller: _discountController,
-                          keyboardType: TextInputType.number,
-                          textAlign: TextAlign.right,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            prefixText: '$currency ',
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                          ),
-                          onChanged: (_) => _recalculate(),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (applicableDiscounts.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    SizedBox(
-                      height: 28,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: applicableDiscounts.length,
-                        separatorBuilder: (context, index) => const SizedBox(width: 6),
-                        itemBuilder: (ctx, idx) {
-                          final disc = applicableDiscounts[idx];
-                          final isSelected = _selectedDiscount?.id == disc.id;
-                          return InkWell(
-                            onTap: () {
-                              setState(() {
-                                if (isSelected) {
-                                  _selectedDiscount = null;
-                                  _discountController.text = '0';
-                                } else {
-                                  _selectedDiscount = disc;
-                                }
-                              });
-                              _recalculate();
-                            },
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? AppColors.primary
-                                    : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isSelected ? AppColors.primary : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                                ),
-                              ),
-                              child: Text(
-                                '${disc.code} (${disc.discountText})',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: isSelected ? Colors.white : (isDark ? AppColors.primaryLight : AppColors.primary),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-
-                  // Line 3: Damage / Late Fee
-                  Row(
-                    children: [
-                      const Expanded(child: Text('Damage / Late Fee (+)', style: TextStyle(fontSize: 13))),
-                      SizedBox(
-                        width: 100,
-                        child: TextField(
-                          controller: _damageFeeController,
-                          keyboardType: TextInputType.number,
-                          textAlign: TextAlign.right,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            prefixText: '$currency ',
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                          ),
-                          onChanged: (_) => _recalculate(),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(),
-                  const SizedBox(height: 6),
-
-                  // Net Rent Due
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Net Rent Due', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      Text('$currency${_netRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                      Text('Gross Rent Subtotal', style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      Text('$currency${_calculatedRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                     ],
                   ),
-                  if (widget.lease.advanceRentPaid > 0) ...[
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Less: Advance Rent Paid Upfront',
-                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                        Text('-$currency${widget.lease.advanceRentPaid.toStringAsFixed(2)}',
-                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.primaryLight : AppColors.primary)),
-                      ],
+                  const SizedBox(height: 10),
+
+                  // Coupon / Discount row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _discountController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Discount / Coupon ($currency)',
+                            prefixText: '$currency ',
+                          ),
+                          onChanged: (_) => setState(_recalculate),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton(
+                        icon: const Icon(Icons.local_offer_outlined, color: AppColors.primary),
+                        tooltip: 'Apply Coupon',
+                        onPressed: () => _openDiscountPickerModal(context),
+                      ),
+                    ],
+                  ),
+                  if (_appliedDiscount != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Applied Coupon: ${_appliedDiscount!.code} (${_appliedDiscount!.discountText})',
+                        style: const TextStyle(fontSize: 11, color: AppColors.primaryLight, fontWeight: FontWeight.bold),
+                      ),
                     ),
-                  ],
-                  if (widget.lease.depositPaid > 0) ...[
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Less: Security Deposit Held Upfront',
-                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                        Text('-$currency${widget.lease.depositPaid.toStringAsFixed(2)}',
-                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.primaryLight : AppColors.primary)),
-                      ],
+
+                  const SizedBox(height: 10),
+
+                  TextFormField(
+                    controller: _damageFeeController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Damage / Inspection / Overdue Fee ($currency)',
+                      prefixText: '$currency ',
+                      helperText: 'Added to final rental charges upon inspection',
                     ),
-                  ],
+                    onChanged: (_) => setState(_recalculate),
+                  ),
+
+                  const SizedBox(height: 12),
+                  Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  const SizedBox(height: 8),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Final Net Rental Charge', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface)),
+                      Text('$currency${_netRent.toStringAsFixed(2)}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                    ],
+                  ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
 
-            // Final Settlement Banner
+            // Final Settlement Reconciliation Card
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: _finalBalance > 0
-                    ? (isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2))
+                    ? (isDark ? const Color(0xFF3B2E15) : const Color(0xFFFFFBEB))
                     : (_finalBalance < 0
                         ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
-                        : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow)),
+                        : (isDark ? AppColors.darkCard : Colors.white)),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: _finalBalance > 0
-                      ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA))
-                      : (_finalBalance < 0
-                          ? (isDark ? AppColors.primary : const Color(0xFFA7F3D0))
-                          : (isDark ? AppColors.darkBorder : AppColors.lightBorder)),
+                      ? AppColors.tertiaryAmber
+                      : (_finalBalance < 0 ? AppColors.primaryLight : (isDark ? AppColors.darkBorder : AppColors.lightBorder)),
+                  width: 1.5,
                 ),
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _finalBalance > 0
-                                ? 'COLLECT FROM CUSTOMER'
-                                : (_finalBalance < 0 ? 'REFUND DEPOSIT TO CUSTOMER' : 'FULLY SETTLED'),
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: _finalBalance > 0
-                                  ? AppColors.errorRed
-                                  : (_finalBalance < 0 ? AppColors.primaryLight : (isDark ? Colors.white : AppColors.slateNavy)),
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          Text(
-                            _finalBalance > 0
-                                ? 'Rent exceeded deposit held'
-                                : (_finalBalance < 0 ? 'Rent auto-deducted from deposit' : 'Net zero balance'),
-                            style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                          ),
-                        ],
-                      ),
                       Text(
-                        '$currency${_finalBalance.abs().toStringAsFixed(2)}',
+                        _finalBalance > 0
+                            ? 'Client Owes Store (Additional Collect)'
+                            : (_finalBalance < 0 ? 'Store Refund to Client' : 'Fully Settled (Net Zero Balance)'),
                         style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
                           color: _finalBalance > 0
-                              ? AppColors.errorRed
+                              ? Colors.amber.shade900
                               : (_finalBalance < 0 ? AppColors.primaryLight : (isDark ? Colors.white : AppColors.slateNavy)),
                         ),
                       ),
+                      if (store != null && _finalBalance > 0)
+                        IconButton(
+                          icon: const Icon(Icons.qr_code, color: AppColors.primary),
+                          tooltip: 'Show UPI QR Code',
+                          onPressed: () => _showPaymentQrModal(store),
+                        ),
                     ],
                   ),
-                  if (_finalBalance > 0) ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: store == null ? null : () => _showPaymentQrModal(store),
-                      icon: const Icon(Icons.qr_code, size: 18),
-                      label: const Text('Show Payment UPI QR Code'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.errorRed,
-                        side: const BorderSide(color: AppColors.errorRed),
-                      ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '$currency${_finalBalance.abs().toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: _finalBalance > 0
+                          ? AppColors.errorRed
+                          : (_finalBalance < 0 ? AppColors.primaryLight : (isDark ? Colors.white : AppColors.slateNavy)),
                     ),
-                  ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _finalBalance > 0
+                        ? 'Collect $currency${_finalBalance.toStringAsFixed(2)} via Cash / UPI QR Code.'
+                        : (_finalBalance < 0
+                            ? 'Refund $currency${_finalBalance.abs().toStringAsFixed(2)} security deposit balance to client.'
+                            : 'Security deposit matches rental charges exactly.'),
+                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                  ),
                 ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // Return Inspection Notes
+            TextFormField(
+              controller: _notesController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Return Notes (Optional)',
+                hintText: 'Accessories verified, minor scratches recorded...',
               ),
             ),
 
             const SizedBox(height: 24),
 
-            // Confirm Return & Settlement CTA
-            ElevatedButton(
+            // Primary Settlement Button
+            ElevatedButton.icon(
               onPressed: _isSettling ? null : _handleSettlement,
+              icon: const Icon(Icons.check_circle_outline, size: 20),
+              label: Text(_isSettling ? 'Finalizing Settlement...' : 'Confirm Return & Finalize Settlement'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 minimumSize: const Size.fromHeight(50),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: _isSettling
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
-                    )
-                  : const Text('Confirm Payment & Release Item', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
             const SizedBox(height: 32),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildConditionPhotoThumbnail(BuildContext context, String photoUrl, int index, bool isDark) {
+    return GestureDetector(
+      onTap: () => _showEnlargedPhotoDialog(context, photoUrl, index),
+      child: Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(photoUrl, fit: BoxFit.cover),
+        ),
+      ),
+    );
+  }
+
+  void _showEnlargedPhotoDialog(BuildContext context, String photoUrl, int index) {
+    showDialog(
+      context: context,
+      builder: (dCtx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.7,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.black,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: InteractiveViewer(
+                    child: Image.network(photoUrl, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(dCtx),
+                icon: const Icon(Icons.close, size: 18),
+                label: const Text('Close Photo Preview'),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _openDiscountPickerModal(BuildContext context) {
+    final discountState = context.read<DiscountCubit>().state;
+    final discounts = discountState is DiscountLoaded ? discountState.discounts : <DiscountModel>[];
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (modalCtx) {
+        final isDark = Theme.of(modalCtx).brightness == Brightness.dark;
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Available Discount Coupons',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : AppColors.lightOnSurface),
+              ),
+              const SizedBox(height: 12),
+              if (discounts.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(child: Text('No discount coupons active.')),
+                )
+              else
+                SizedBox(
+                  height: 200,
+                  child: ListView.separated(
+                    itemCount: discounts.length,
+                    separatorBuilder: (context, index) => const SizedBox(width: 6),
+                    itemBuilder: (context, index) {
+                      final disc = discounts[index];
+                      return ListTile(
+                        leading: const Icon(Icons.local_offer, color: AppColors.primary),
+                        title: Text(disc.code, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(disc.title),
+                        trailing: Text(disc.discountText, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
+                        onTap: () {
+                          final discAmt = disc.calculateDiscountAmount(_calculatedRent);
+                          setState(() {
+                            _appliedDiscount = disc;
+                            _discountController.text = discAmt.toStringAsFixed(0);
+                            _recalculate();
+                          });
+                          Navigator.pop(modalCtx);
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

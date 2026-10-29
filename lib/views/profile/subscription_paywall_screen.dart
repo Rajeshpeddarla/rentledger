@@ -188,7 +188,7 @@ class _SubscriptionPaywallScreenState extends State<SubscriptionPaywallScreen> {
                 children: [
                   _buildMatrixRow('Active Items Fleet', '10 Items', 'UNLIMITED', true, isDark),
                   const Divider(),
-                  _buildMatrixRow('Monthly Leases Quota', '15 Leases/mo', 'UNLIMITED', true, isDark),
+                  _buildMatrixRow('Monthly Leases Quota', '500 Leases/mo', 'UNLIMITED', true, isDark),
                   const Divider(),
                   _buildMatrixRow('Receipt PDF Branding', 'RentLedger Tag', 'Custom Store Logo', true, isDark),
                   const Divider(),

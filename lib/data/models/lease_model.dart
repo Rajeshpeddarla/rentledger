@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'customer_model.dart';
 import 'inventory_item_model.dart';
+import 'lease_item_model.dart';
 
 class LeaseModel extends Equatable {
   final String id;
@@ -27,10 +28,22 @@ class LeaseModel extends Equatable {
   final double finalSettlementBalance;
   final String? returnNotes;
 
+  // Transaction Tax Snapshot Fields (Retained for Historical Audits)
+  final double taxableAmount;
+  final String appliedTaxType; // 'GST', 'VAT', 'Sales Tax', 'Other', 'No Tax'
+  final double appliedTaxRate; // e.g. 18.0 (%)
+  final double taxAmount;
+  final double totalAmountWithTax;
+  final bool isTaxInclusive;
+
   final int quantity;
-  final String status; // 'upcoming', 'active', 'returned', 'cancelled'
+  final List<String> subItemIds;
+  final String status; // 'upcoming', 'active', 'reserved', 'returned', 'cancelled'
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  // 1-to-Many Lease Line Items
+  final List<LeaseItemModel> leaseItems;
 
   // Embedded relations for convenient UI consumption
   final InventoryItemModel? item;
@@ -56,16 +69,24 @@ class LeaseModel extends Equatable {
     this.netRentTotal = 0.0,
     this.finalSettlementBalance = 0.0,
     this.returnNotes,
+    this.taxableAmount = 0.0,
+    this.appliedTaxType = 'No Tax',
+    this.appliedTaxRate = 0.0,
+    this.taxAmount = 0.0,
+    this.totalAmountWithTax = 0.0,
+    this.isTaxInclusive = false,
     this.quantity = 1,
+    this.subItemIds = const [],
     this.status = 'active',
     required this.createdAt,
     required this.updatedAt,
+    this.leaseItems = const [],
     this.item,
     this.customer,
   });
 
   bool get isOverdue {
-    if (status != 'active') return false;
+    if (status != 'active' && status != 'reserved') return false;
     return DateTime.now().isAfter(expectedEndTime);
   }
 
@@ -75,14 +96,34 @@ class LeaseModel extends Equatable {
   }
 
   bool get isDueToday {
-    if (status != 'active') return false;
+    if (status != 'active' && status != 'reserved') return false;
     final now = DateTime.now();
     return expectedEndTime.year == now.year &&
         expectedEndTime.month == now.month &&
         expectedEndTime.day == now.day;
   }
 
+  bool get isFutureReservation => status == 'reserved' || (status == 'upcoming' && startTime.isAfter(DateTime.now()));
+
   String get shortId => id.length > 8 ? id.substring(0, 8).toUpperCase() : id.toUpperCase();
+
+  int get totalPieces {
+    if (leaseItems.isNotEmpty) {
+      return leaseItems.fold(0, (sum, li) => sum + li.quantity);
+    }
+    return quantity;
+  }
+
+  String get itemNamesSummary {
+    if (leaseItems.isNotEmpty) {
+      return leaseItems.map((li) => '${li.quantity}x ${li.item?.name ?? "Equipment"}').join(', ');
+    }
+    if (returnNotes != null && returnNotes!.contains('Leased Equipment Items:')) {
+      final noteStr = returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
+      if (noteStr.isNotEmpty) return noteStr;
+    }
+    return item?.name ?? 'Equipment Item';
+  }
 
   static DateTime _parseLocalDateTime(dynamic value) {
     if (value == null) return DateTime.now();
@@ -90,8 +131,6 @@ class LeaseModel extends Equatable {
     final str = value.toString();
     try {
       final parsed = DateTime.parse(str);
-      // Preserve the nominal wall-clock calendar date & time components.
-      // This ensures rentals scheduled in the evening are never shifted across midnight due to UTC offsets.
       return DateTime(
         parsed.year,
         parsed.month,
@@ -108,17 +147,27 @@ class LeaseModel extends Equatable {
 
   factory LeaseModel.fromJson(Map<String, dynamic> json) {
     List<String> photos = [];
-    if (json['before_photo_urls'] != null) {
-      if (json['before_photo_urls'] is List) {
-        photos = (json['before_photo_urls'] as List).map((e) => e.toString()).toList();
-      }
+    if (json['before_photo_urls'] != null && json['before_photo_urls'] is List) {
+      photos = (json['before_photo_urls'] as List).map((e) => e.toString()).toList();
+    }
+
+    List<String> subItems = [];
+    if (json['sub_item_ids'] != null && json['sub_item_ids'] is List) {
+      subItems = (json['sub_item_ids'] as List).map((e) => e.toString()).toList();
+    }
+
+    List<LeaseItemModel> lineItems = [];
+    if (json['lease_items'] != null && json['lease_items'] is List) {
+      lineItems = (json['lease_items'] as List)
+          .map((e) => LeaseItemModel.fromJson(e as Map<String, dynamic>))
+          .toList();
     }
 
     return LeaseModel(
       id: json['id'] as String,
-      storeId: json['store_id'] as String,
-      itemId: json['item_id'] as String,
-      customerId: json['customer_id'] as String,
+      storeId: json['store_id'] as String? ?? json['storeId'] as String? ?? 'demo_store_1',
+      itemId: json['item_id'] as String? ?? json['itemId'] as String? ?? '',
+      customerId: json['customer_id'] as String? ?? json['customerId'] as String? ?? '',
       startTime: _parseLocalDateTime(json['start_time']),
       expectedEndTime: _parseLocalDateTime(json['expected_end_time']),
       actualReturnTime: json['actual_return_time'] != null
@@ -137,7 +186,16 @@ class LeaseModel extends Equatable {
       finalSettlementBalance:
           (json['final_settlement_balance'] as num?)?.toDouble() ?? 0.0,
       returnNotes: json['return_notes'] as String?,
+      taxableAmount: (json['taxable_amount'] as num?)?.toDouble() ?? 0.0,
+      appliedTaxType: json['applied_tax_type'] as String? ?? 'No Tax',
+      appliedTaxRate: (json['applied_tax_rate'] as num?)?.toDouble() ?? 0.0,
+      taxAmount: (json['tax_amount'] as num?)?.toDouble() ?? 0.0,
+      totalAmountWithTax: (json['total_amount_with_tax'] as num?)?.toDouble() ??
+          (json['net_rent_total'] as num?)?.toDouble() ??
+          0.0,
+      isTaxInclusive: json['is_tax_inclusive'] as bool? ?? false,
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      subItemIds: subItems,
       status: json['status'] as String? ?? 'active',
       createdAt: json['created_at'] != null
           ? _parseLocalDateTime(json['created_at'])
@@ -145,6 +203,7 @@ class LeaseModel extends Equatable {
       updatedAt: json['updated_at'] != null
           ? _parseLocalDateTime(json['updated_at'])
           : DateTime.now(),
+      leaseItems: lineItems,
       item: json['inventory_items'] != null
           ? InventoryItemModel.fromJson(json['inventory_items'] as Map<String, dynamic>)
           : null,
@@ -175,11 +234,26 @@ class LeaseModel extends Equatable {
       'net_rent_total': netRentTotal,
       'final_settlement_balance': finalSettlementBalance,
       'return_notes': returnNotes,
+      'taxable_amount': taxableAmount,
+      'applied_tax_type': appliedTaxType,
+      'applied_tax_rate': appliedTaxRate,
+      'tax_amount': taxAmount,
+      'total_amount_with_tax': totalAmountWithTax,
+      'is_tax_inclusive': isTaxInclusive,
       'quantity': quantity,
+      'sub_item_ids': subItemIds,
       'status': status,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
+  }
+
+  Map<String, dynamic> toDatabaseJson() {
+    final map = Map<String, dynamic>.from(toJson());
+    if (actualReturnTime == null) {
+      map.remove('actual_return_time');
+    }
+    return map;
   }
 
   LeaseModel copyWith({
@@ -202,10 +276,18 @@ class LeaseModel extends Equatable {
     double? netRentTotal,
     double? finalSettlementBalance,
     String? returnNotes,
+    double? taxableAmount,
+    String? appliedTaxType,
+    double? appliedTaxRate,
+    double? taxAmount,
+    double? totalAmountWithTax,
+    bool? isTaxInclusive,
     int? quantity,
+    List<String>? subItemIds,
     String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
+    List<LeaseItemModel>? leaseItems,
     InventoryItemModel? item,
     CustomerModel? customer,
   }) {
@@ -230,10 +312,18 @@ class LeaseModel extends Equatable {
       finalSettlementBalance:
           finalSettlementBalance ?? this.finalSettlementBalance,
       returnNotes: returnNotes ?? this.returnNotes,
+      taxableAmount: taxableAmount ?? this.taxableAmount,
+      appliedTaxType: appliedTaxType ?? this.appliedTaxType,
+      appliedTaxRate: appliedTaxRate ?? this.appliedTaxRate,
+      taxAmount: taxAmount ?? this.taxAmount,
+      totalAmountWithTax: totalAmountWithTax ?? this.totalAmountWithTax,
+      isTaxInclusive: isTaxInclusive ?? this.isTaxInclusive,
       quantity: quantity ?? this.quantity,
+      subItemIds: subItemIds ?? this.subItemIds,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      leaseItems: leaseItems ?? this.leaseItems,
       item: item ?? this.item,
       customer: customer ?? this.customer,
     );
@@ -260,10 +350,18 @@ class LeaseModel extends Equatable {
         netRentTotal,
         finalSettlementBalance,
         returnNotes,
+        taxableAmount,
+        appliedTaxType,
+        appliedTaxRate,
+        taxAmount,
+        totalAmountWithTax,
+        isTaxInclusive,
         quantity,
+        subItemIds,
         status,
         createdAt,
         updatedAt,
+        leaseItems,
         item,
         customer,
       ];

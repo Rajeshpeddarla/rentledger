@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/config/app_theme.dart';
 import '../../core/services/r2_storage_service.dart';
 import '../../core/utils/rate_calculator.dart';
@@ -9,6 +10,8 @@ import '../../core/utils/uuid_generator.dart';
 import '../../core/widgets/app_image_view.dart';
 import '../../data/models/inventory_item_model.dart';
 import '../../data/models/store_model.dart';
+import '../../data/models/sub_item_model.dart';
+import '../../data/repositories/sub_item_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/category/category_cubit.dart';
@@ -16,6 +19,20 @@ import '../../viewmodels/category/category_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
 import '../profile/category_list_screen.dart';
 import '../profile/subscription_paywall_screen.dart';
+
+class SubItemInput {
+  final TextEditingController nameCtrl;
+  final TextEditingController serialCtrl;
+
+  SubItemInput({String name = '', String serial = ''})
+      : nameCtrl = TextEditingController(text: name),
+        serialCtrl = TextEditingController(text: serial);
+
+  void dispose() {
+    nameCtrl.dispose();
+    serialCtrl.dispose();
+  }
+}
 
 class AddEditItemScreen extends StatefulWidget {
   final InventoryItemModel? initialItem;
@@ -41,14 +58,24 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   late final TextEditingController _weeklyController;
   late final TextEditingController _monthlyController;
 
-  String _selectedCategory = 'General';
+  // Equipment Tax Configuration Fields
+  String _taxType = 'No Tax';
+  late final TextEditingController _taxRateController;
+  bool _isTaxInclusive = false;
+  bool _isTaxConfirmed = true;
+
+  // Sub-Items list controller
+  final List<SubItemInput> _subItemInputs = [];
+
+  String _selectedCategory = 'Cameras';
   bool _isCategoryDropdownExpanded = false;
 
   File? _pickedImage;
   String? _imageUrl;
   bool _isUploading = false;
+  bool _isSaving = false;
 
-  // Manual override tracking flags (Section 4.1)
+  // Manual override tracking flags
   bool _isWeeklyManuallyEdited = false;
   bool _isMonthlyManuallyEdited = false;
 
@@ -68,7 +95,12 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     _weeklyController = TextEditingController(text: item != null ? '${item.rateWeekly.toInt()}' : '7200');
     _monthlyController = TextEditingController(text: item != null ? '${item.rateMonthly.toInt()}' : '26400');
 
-    _selectedCategory = item?.category ?? 'General';
+    _taxType = item?.taxType ?? 'No Tax';
+    _taxRateController = TextEditingController(text: item != null ? item.taxRate.toStringAsFixed(1) : '0.0');
+    _isTaxInclusive = item?.isTaxInclusive ?? false;
+    _isTaxConfirmed = item?.isTaxConfirmed ?? true;
+
+    _selectedCategory = item?.category ?? 'Cameras';
     final initialImg = item?.imageR2Url;
     if (initialImg != null && !initialImg.startsWith('http')) {
       final f = File(initialImg);
@@ -80,6 +112,18 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     if (item != null) {
       _isWeeklyManuallyEdited = true;
       _isMonthlyManuallyEdited = true;
+
+      // Load existing sub-items
+      SubItemRepository().getSubItems(parentItemId: item.id).then((subItems) {
+        if (mounted && subItems.isNotEmpty) {
+          setState(() {
+            _subItemInputs.clear();
+            for (final s in subItems) {
+              _subItemInputs.add(SubItemInput(name: s.name, serial: s.serialNumber ?? ''));
+            }
+          });
+        }
+      });
     }
 
     context.read<CategoryCubit>().loadCategories();
@@ -96,7 +140,28 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     _dailyController.dispose();
     _weeklyController.dispose();
     _monthlyController.dispose();
+    _taxRateController.dispose();
+    for (final input in _subItemInputs) {
+      input.dispose();
+    }
     super.dispose();
+  }
+
+  String _getOfficialTaxGuidanceUrl(String country) {
+    switch (country.toLowerCase()) {
+      case 'india':
+        return 'https://cbic-gst.gov.in/hindi/gst-goods-services-rates.html';
+      case 'united kingdom':
+        return 'https://www.gov.uk/vat-rates';
+      case 'australia':
+        return 'https://www.ato.gov.au/businesses-and-organisations/gst-excise-and-indirect-taxes/gst';
+      case 'united states':
+        return 'https://www.taxjar.com/sales-tax';
+      case 'canada':
+        return 'https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html';
+      default:
+        return 'https://www.google.com/search?q=equipment+rental+tax+rate+$country';
+    }
   }
 
   void _onHourlyChanged(String val) {
@@ -106,7 +171,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       final store = storeState is StoreLoaded ? storeState.store : null;
       final workingHours = store != null ? (store.dailyWorkingHours <= 0 ? 8.0 : store.dailyWorkingHours.toDouble()) : 8.0;
       final daysPerWeek = store?.daysPerWeek ?? 6;
-      final daysPerMonth = store != null ? (store.daysPerMonth <= 0 ? 28 : store.daysPerMonth) : 28;
+      final daysPerMonth = store?.effectiveDaysPerMonth ?? (store?.enableWeekendLease == true ? 28 : 24);
 
       final suggested = RateCalculator.suggestRates(
         hourly: hourly,
@@ -132,7 +197,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       final store = storeState is StoreLoaded ? storeState.store : null;
       final workingHours = store != null ? (store.dailyWorkingHours <= 0 ? 8.0 : store.dailyWorkingHours.toDouble()) : 8.0;
       final daysPerWeek = store?.daysPerWeek ?? 6;
-      final daysPerMonth = store != null ? (store.daysPerMonth <= 0 ? 28 : store.daysPerMonth) : 28;
+      final daysPerMonth = store?.effectiveDaysPerMonth ?? (store?.enableWeekendLease == true ? 28 : 24);
 
       final suggested = RateCalculator.suggestRates(
         daily: daily,
@@ -157,7 +222,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
     int hours = store.dailyWorkingHours <= 0 ? 8 : store.dailyWorkingHours;
     bool enableSundays = store.enableWeekendLease;
-    int monthDays = store.daysPerMonth <= 0 ? 28 : store.daysPerMonth;
+    int monthDays = store.effectiveDaysPerMonth;
 
     showModalBottomSheet(
       context: context,
@@ -363,7 +428,6 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
           _imageUrl = uploadedUrl;
         } else {
-          // Cloud upload failed
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -378,9 +442,10 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
       final storeState = storeCubit.state;
       final storeId = storeState is StoreLoaded ? storeState.store.id : 'demo_store_1';
+      final itemId = widget.initialItem?.id ?? UuidGenerator.generateV4();
 
       final item = InventoryItemModel(
-        id: widget.initialItem?.id ?? UuidGenerator.generateV4(),
+        id: itemId,
         storeId: storeId,
         name: _nameController.text.trim(),
         description: _descController.text.trim(),
@@ -395,11 +460,42 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         rateWeekly: double.tryParse(_weeklyController.text) ?? 0.0,
         rateMonthly: double.tryParse(_monthlyController.text) ?? 0.0,
         imageR2Url: _imageUrl,
+        taxType: _taxType,
+        taxRate: _taxType == 'No Tax' ? 0.0 : (double.tryParse(_taxRateController.text) ?? 0.0),
+        isTaxInclusive: _isTaxInclusive,
+        taxEffectiveDate: widget.initialItem?.taxEffectiveDate ?? DateTime.now(),
+        taxLastVerifiedDate: DateTime.now(),
+        isTaxConfirmed: _isTaxConfirmed,
         createdAt: widget.initialItem?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
       );
 
       await inventoryCubit.saveItem(item, isPro: widget.isPro);
+
+      // Save Sub-Items / Serial Numbers (with auto-generated serials if empty)
+      final subItemRepo = SubItemRepository();
+      for (int i = 0; i < _subItemInputs.length; i++) {
+        final input = _subItemInputs[i];
+        final subName = input.nameCtrl.text.trim().isNotEmpty
+            ? input.nameCtrl.text.trim()
+            : '${_nameController.text.trim()} #${i + 1}';
+
+        final autoSerial = 'SN-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}-${i + 1}';
+        final subSerial = input.serialCtrl.text.trim().isNotEmpty
+            ? input.serialCtrl.text.trim()
+            : autoSerial;
+
+        final subItem = SubItemModel(
+          id: '${itemId}_sub_${i + 1}',
+          parentItemId: itemId,
+          storeId: storeId,
+          name: subName,
+          serialNumber: subSerial,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+        await subItemRepo.saveSubItem(subItem);
+      }
 
       if (!mounted) return;
       Navigator.pop(context);
@@ -467,18 +563,17 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     );
   }
 
-  bool _isSaving = false;
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final storeState = context.watch<StoreCubit>().state;
     final store = storeState is StoreLoaded ? storeState.store : null;
     final currency = store?.currencySymbol ?? '₹';
+    final country = store?.country ?? 'India';
 
     final workingHours = store != null ? (store.dailyWorkingHours <= 0 ? 8 : store.dailyWorkingHours) : 8;
     final daysPerWeek = store?.daysPerWeek ?? 6;
-    final daysPerMonth = store != null ? (store.daysPerMonth <= 0 ? 28 : store.daysPerMonth) : 28;
+    final daysPerMonth = store?.effectiveDaysPerMonth ?? (store?.enableWeekendLease == true ? 28 : 24);
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -671,17 +766,15 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
               const SizedBox(height: 14),
 
-              // Equipment Category Inline Selector
+              // Equipment Category Inline Selector (No "General" default)
               BlocBuilder<CategoryCubit, CategoryState>(
                 builder: (context, catState) {
-                  List<String> categories = ['General'];
+                  List<String> categories = [];
                   if (catState is CategoryLoaded && catState.categories.isNotEmpty) {
-                    final names = catState.categories.map((c) => c.name.trim()).toList();
-                    if (!names.contains('General')) {
-                      categories = [...names, 'General'];
-                    } else {
-                      categories = names;
-                    }
+                    categories = catState.categories.map((c) => c.name.trim()).where((n) => n.isNotEmpty && n.toLowerCase() != 'general').toList();
+                  }
+                  if (categories.isEmpty) {
+                    categories = ['Cameras', 'Lenses', 'Lighting', 'Audio', 'Tools', 'Accessories'];
                   }
 
                   if (!categories.contains(_selectedCategory) && categories.isNotEmpty) {
@@ -857,7 +950,180 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                 validator: (val) => val == null || val.trim().isEmpty ? 'Required' : null,
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
+
+              // Sub-Items & Serial Numbers Card
+              _buildSubItemsCard(context, isDark),
+
+              const SizedBox(height: 20),
+
+              // Equipment Tax Configuration Card
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Icon(Icons.receipt_long, color: isDark ? AppColors.primaryLight : AppColors.primary, size: 20),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Equipment Tax Config',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        TextButton.icon(
+                          onPressed: () async {
+                            final url = Uri.parse(_getOfficialTaxGuidanceUrl(country));
+                            if (await canLaunchUrl(url)) {
+                              await launchUrl(url, mode: LaunchMode.externalApplication);
+                            }
+                          },
+                          icon: const Icon(Icons.open_in_new, size: 13),
+                          label: const Text('Find Tax Rate', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Tax Type', style: Theme.of(context).textTheme.titleSmall),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<String>(
+                                initialValue: _taxType,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                  isDense: true,
+                                ),
+                                items: ['No Tax', 'GST', 'VAT', 'Sales Tax', 'Other'].map((t) {
+                                  return DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 13)));
+                                }).toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() {
+                                      _taxType = val;
+                                      if (val == 'No Tax') {
+                                        _taxRateController.text = '0.0';
+                                      }
+                                    });
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Tax Percentage (%)', style: Theme.of(context).textTheme.titleSmall),
+                              const SizedBox(height: 6),
+                              TextFormField(
+                                controller: _taxRateController,
+                                enabled: _taxType != 'No Tax',
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: InputDecoration(
+                                  suffixText: '%',
+                                  hintText: '18.0',
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                  isDense: true,
+                                  filled: _taxType == 'No Tax',
+                                  fillColor: _taxType == 'No Tax' ? (isDark ? Colors.grey.shade900 : Colors.grey.shade200) : null,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (_taxType != 'No Tax') ...[
+                      const SizedBox(height: 14),
+                      Text('Is Tax Included in Rental Price?', style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _isTaxInclusive = false),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: !_isTaxInclusive
+                                      ? AppColors.primary
+                                      : (isDark ? AppColors.darkSurfaceLow : Colors.grey.shade100),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: !_isTaxInclusive ? AppColors.primary : (isDark ? AppColors.darkBorder : AppColors.lightBorder)),
+                                ),
+                                child: Text(
+                                  'No — add tax on top',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: !_isTaxInclusive ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _isTaxInclusive = true),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: _isTaxInclusive
+                                      ? AppColors.primary
+                                      : (isDark ? AppColors.darkSurfaceLow : Colors.grey.shade100),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: _isTaxInclusive ? AppColors.primary : (isDark ? AppColors.darkBorder : AppColors.lightBorder)),
+                                ),
+                                child: Text(
+                                  'Yes — tax is included',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: _isTaxInclusive ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
 
               // Smart Rates Section Card
               Container(
@@ -995,12 +1261,156 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                         height: 22,
                         child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
                       )
-                    : Text(widget.initialItem == null ? 'Add Equipment to Depot' : 'Save Equipment Changes'),
+                    : Text(widget.initialItem == null ? 'Add Equipment to Inventory' : 'Save Equipment Changes'),
               ),
               const SizedBox(height: 24),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSubItemsCard(BuildContext context, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.format_list_bulleted, color: isDark ? AppColors.primaryLight : AppColors.primary, size: 20),
+                  const SizedBox(width: 8),
+                  const Text('Sub-Items', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _subItemInputs.add(SubItemInput(
+                      name: 'Unit ${_subItemInputs.length + 1}',
+                      serial: '',
+                    ));
+                    _quantityController.text = _subItemInputs.length.toString();
+                  });
+                },
+                icon: const Icon(Icons.add_circle_outline, size: 16),
+                label: const Text('Add Sub-Item', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Track individual unit names and optional serial numbers for serialized depot equipment.',
+            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+          ),
+          const SizedBox(height: 12),
+
+          if (_subItemInputs.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No sub-items added yet. Tap "+ Add Sub-Item" to add serial numbers or unit names.',
+                      style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _subItemInputs.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final input = _subItemInputs[index];
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Sub-Item #${index + 1}',
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                            constraints: const BoxConstraints(),
+                            padding: EdgeInsets.zero,
+                            tooltip: 'Remove Sub-Item',
+                            onPressed: () {
+                              setState(() {
+                                input.dispose();
+                                _subItemInputs.removeAt(index);
+                                if (_subItemInputs.isNotEmpty) {
+                                  _quantityController.text = _subItemInputs.length.toString();
+                                }
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Full-width Sub-Item Name Field
+                      TextFormField(
+                        controller: input.nameCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Sub-Item Name',
+                          hintText: 'e.g. Unit #${index + 1} or Camera Body A',
+                          prefixIcon: const Icon(Icons.label_outlined, size: 20),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Optional Serial Number Field
+                      TextFormField(
+                        controller: input.serialCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Serial Number (Optional - Auto Generated if empty)',
+                          hintText: 'e.g. SN-489102 or leave blank to auto-generate',
+                          prefixIcon: Icon(Icons.qr_code, size: 20),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+        ],
       ),
     );
   }

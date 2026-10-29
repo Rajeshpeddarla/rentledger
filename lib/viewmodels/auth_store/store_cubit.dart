@@ -34,6 +34,8 @@ class StoreCubit extends Cubit<StoreState> {
     required String businessName,
     required String currencySymbol,
     String country = 'India',
+    String taxRegistrationStatus = 'not_registered',
+    String? taxRegistrationNumber,
   }) async {
     emit(StoreLoading());
     try {
@@ -54,6 +56,8 @@ class StoreCubit extends Cubit<StoreState> {
         businessName: businessName,
         currencySymbol: currencySymbol,
         country: country,
+        taxRegistrationStatus: taxRegistrationStatus,
+        taxRegistrationNumber: taxRegistrationNumber,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );

@@ -13,6 +13,7 @@ import '../../viewmodels/inventory/inventory_state.dart';
 import '../widgets/shimmer_loading.dart';
 import 'add_edit_item_screen.dart';
 import 'item_detail_history_screen.dart';
+import 'restock_inventory_screen.dart';
 
 class InventoryListScreen extends StatefulWidget {
   const InventoryListScreen({super.key});
@@ -49,7 +50,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
     final workingHours = store != null ? (store.dailyWorkingHours <= 0 ? 8 : store.dailyWorkingHours) : 8;
     final daysPerWeek = store?.daysPerWeek ?? 6;
-    final daysPerMonth = store != null ? (store.daysPerMonth <= 0 ? 28 : store.daysPerMonth) : 28;
+    final daysPerMonth = store?.effectiveDaysPerMonth ?? (store?.enableWeekendLease == true ? 28 : 24);
 
     final smartRates = RateCalculator.suggestRates(
       hourly: _calcHourly,
@@ -65,6 +66,15 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         elevation: 0,
         backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add_shopping_cart, color: AppColors.primary),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RestockInventoryScreen()),
+              );
+            },
+            tooltip: 'Refill / Restock Lost Inventory',
+          ),
           IconButton(
             icon: const Icon(Icons.add_box_rounded, color: AppColors.primary),
             onPressed: () {
@@ -100,6 +110,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               context.read<CategoryCubit>().loadCategories();
             },
             child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -138,7 +149,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
                   const SizedBox(height: 12),
 
-                  // 2. Category Filter Strip (Dynamic categories from CategoryCubit)
+                  // 2. Category Filter Strip
                   BlocBuilder<CategoryCubit, CategoryState>(
                     builder: (context, catState) {
                       if (catState is CategoryLoading || catState is CategoryInitial) {
@@ -149,7 +160,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                           ? catState.categoryNames.where((n) => n.trim().isNotEmpty).toList()
                           : <String>[];
 
-                      // Also ensure categories present on allItems appear in the filter list if not already there
                       for (final it in inventoryLoaded.allItems) {
                         final c = it.category.trim();
                         if (c.isNotEmpty && c.toLowerCase() != 'general' && !loadedCategories.any((lc) => lc.toLowerCase() == c.toLowerCase())) {
@@ -206,40 +216,54 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
                   const SizedBox(height: 8),
 
-                  // Availability ticker pill
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: const BoxDecoration(
-                            color: AppColors.primaryLight,
-                            shape: BoxShape.circle,
-                          ),
+                  // Availability ticker pill & Restock shortcut
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$availableStock / $totalStock Units Available for Lease',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? AppColors.primaryLight : AppColors.primary,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: AppColors.primaryLight,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$availableStock / $totalStock Units Available',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? AppColors.primaryLight : AppColors.primary,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const RestockInventoryScreen()),
+                          );
+                        },
+                        icon: const Icon(Icons.refresh, size: 14),
+                        label: const Text('Restock Lost/Damaged', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
                   ),
 
                   const SizedBox(height: 16),
 
-                  // 3. Smart Rate Auto-Calculator Highlight Card
+                  // 3. Smart Rate Auto-Calculator Card
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -355,7 +379,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                           ],
                         ),
                         const SizedBox(height: 10),
-                        // 3 Multiplier Tiles
                         Row(
                           children: [
                             _buildMultiplierTile('Daily', '${workingHours}h Shift', '$currency${smartRates['daily']?.toStringAsFixed(0)}', isDark),
@@ -552,7 +575,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          '$available Available',
+                          '$available / ${item.totalQuantity} Available',
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
@@ -571,16 +594,52 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
                     ),
                   ),
-                  if (item.description != null && item.description!.isNotEmpty)
-                    Text(
-                      item.description!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                      ),
-                    ),
+
+                  // Stock Breakdown Tags (Ready, Leased, Inspection, Repair, Reserved, Lost)
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      if (available > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(4)),
+                          child: Text('$available Ready', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
+                        ),
+                      if (item.activeLeasesCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: const Color(0xFFEFF4FF), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.activeLeasesCount} Leased', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                        ),
+                      if (item.awaitingInspectionCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: const Color(0xFFFFF6E5), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.awaitingInspectionCount} Inspection', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber)),
+                        ),
+                      if (item.maintenanceCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: const Color(0xFFFFF6E5), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.maintenanceCount} Repair', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
+                        ),
+                      if (item.reservedCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.reservedCount} Reserved', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.secondary)),
+                        ),
+                      if (item.lostCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: const Color(0xFFFFDAD6), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.lostCount} Lost', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                        ),
+                    ],
+                  ),
+
                   const SizedBox(height: 6),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

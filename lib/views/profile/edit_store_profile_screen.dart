@@ -32,6 +32,11 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
   late final TextEditingController _upiIdCtrl;
   late final TextEditingController _termsCtrl;
 
+  // Tax Profile Settings
+  late String _taxRegistrationStatus;
+  late final TextEditingController _taxNumberCtrl;
+  late bool _showTaxOnReceipts;
+
   late final TextEditingController _ownerNameCtrl;
   late final TextEditingController _ownerPhoneCtrl;
   late final TextEditingController _ownerEmailCtrl;
@@ -59,6 +64,10 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
     _upiIdCtrl = TextEditingController(text: store.upiId ?? '');
     _termsCtrl = TextEditingController(text: store.termsAndConditions);
 
+    _taxRegistrationStatus = store.taxRegistrationStatus;
+    _taxNumberCtrl = TextEditingController(text: store.taxRegistrationNumber ?? '');
+    _showTaxOnReceipts = store.showTaxOnReceipts;
+
     _ownerNameCtrl = TextEditingController(text: store.ownerName ?? '');
     _ownerPhoneCtrl = TextEditingController(text: store.ownerPhone ?? '');
     _ownerEmailCtrl = TextEditingController(text: store.ownerEmail ?? '');
@@ -77,6 +86,7 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
     _storeAddressCtrl.dispose();
     _upiIdCtrl.dispose();
     _termsCtrl.dispose();
+    _taxNumberCtrl.dispose();
     _ownerNameCtrl.dispose();
     _ownerPhoneCtrl.dispose();
     _ownerEmailCtrl.dispose();
@@ -187,6 +197,9 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
         address: _storeAddressCtrl.text.trim(),
         upiId: _upiIdCtrl.text.trim(),
         termsAndConditions: _termsCtrl.text.trim(),
+        taxRegistrationStatus: _taxRegistrationStatus,
+        taxRegistrationNumber: _taxNumberCtrl.text.trim().isNotEmpty ? _taxNumberCtrl.text.trim() : null,
+        showTaxOnReceipts: _showTaxOnReceipts,
         ownerName: _ownerNameCtrl.text.trim(),
         ownerPhone: _ownerPhoneCtrl.text.trim(),
         ownerEmail: _ownerEmailCtrl.text.trim(),
@@ -513,7 +526,107 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
 
               const SizedBox(height: 20),
 
-              // 2. Rental Shift & Rate Calculation Rules Card
+              // 2. Business Tax Registration Card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.receipt_long_outlined, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                        const SizedBox(width: 8),
+                        const Text('Business Tax Registration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    Text('Tax Registration Status', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      initialValue: _taxRegistrationStatus,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.verified_user_outlined),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'registered', child: Text('Registered Taxpayer')),
+                        DropdownMenuItem(value: 'not_registered', child: Text('Not Registered')),
+                        DropdownMenuItem(value: 'unsure', child: Text('Unsure / Pending Verification')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _taxRegistrationStatus = val);
+                      },
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    Text('Tax Registration Number (GSTIN / VAT / ABN / EIN)', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: _taxNumberCtrl,
+                      decoration: const InputDecoration(
+                        hintText: 'e.g. 36AABCU9603R1ZM (India GST) or GB123456789 (UK VAT)',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                        helperText: 'Displayed on PDF handover & settlement receipts when configured',
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    Material(
+                      color: Colors.transparent,
+                      child: SwitchListTile(
+                        value: _showTaxOnReceipts,
+                        contentPadding: EdgeInsets.zero,
+                        activeThumbColor: AppColors.primary,
+                        title: const Text('Show Tax Breakdown & Number on Receipts', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        subtitle: Text(
+                          'Prints Tax Registration Number and Tax amount on handover & settlement PDFs',
+                          style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                        ),
+                        onChanged: (val) {
+                          setState(() => _showTaxOnReceipts = val);
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: (isDark ? AppColors.primaryLight : AppColors.primary).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, size: 16, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Business owners are responsible for determining local tax registration obligations and applicable tax rates in their operating jurisdiction.',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // 3. Rental Shift & Rate Calculation Rules Card
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -602,7 +715,7 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
 
               const SizedBox(height: 20),
 
-              // 3. Owner Details Section Card
+              // 4. Owner Details Section Card
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(

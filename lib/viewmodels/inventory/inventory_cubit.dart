@@ -59,6 +59,15 @@ class InventoryCubit extends Cubit<InventoryState> {
     }
   }
 
+  Future<void> restockItem(String itemId, {int quantity = 1}) async {
+    try {
+      await _inventoryRepository.restockItem(itemId, quantity: quantity);
+      await loadInventory();
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
   /// Helper used by Add/Edit Item Form for Smart Rate Auto-Calculation
   /// Section 4.1: Multipliers (8x daily, 6x weekly, 22x monthly)
   Map<String, double> computeSmartRates({

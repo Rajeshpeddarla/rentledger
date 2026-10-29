@@ -299,9 +299,7 @@ class _CustomerDirectoryScreenState extends State<CustomerDirectoryScreen> {
               ElevatedButton.icon(
                 onPressed: () async {
                   Navigator.pop(ctx);
-                  final file = isReturned
-                      ? await PdfReceiptService.instance.generateReturnSettlementReceipt(store: store, lease: lease)
-                      : await PdfReceiptService.instance.generateHandoverReceipt(store: store, lease: lease);
+                  final file = await PdfReceiptService.instance.generateReceiptForLease(store: store, lease: lease);
                   await PdfReceiptService.instance.printReceipt(file);
                 },
                 icon: const Icon(Icons.print, size: 18, color: Colors.white),
@@ -315,9 +313,7 @@ class _CustomerDirectoryScreenState extends State<CustomerDirectoryScreen> {
               OutlinedButton.icon(
                 onPressed: () async {
                   Navigator.pop(ctx);
-                  final file = isReturned
-                      ? await PdfReceiptService.instance.generateReturnSettlementReceipt(store: store, lease: lease)
-                      : await PdfReceiptService.instance.generateHandoverReceipt(store: store, lease: lease);
+                  final file = await PdfReceiptService.instance.generateReceiptForLease(store: store, lease: lease);
                   final msg = isReturned
                       ? 'Return settlement receipt for ${lease.item?.name} from ${store.businessName}'
                       : 'Rental lease receipt for ${lease.item?.name} from ${store.businessName}';
@@ -418,11 +414,7 @@ class _CustomerDirectoryScreenState extends State<CustomerDirectoryScreen> {
                         separatorBuilder: (context, index) => const SizedBox(height: 10),
                         itemBuilder: (lCtx, index) {
                           final lease = leases[index];
-                          String itemName = lease.item?.name ?? 'Equipment Item';
-                          if (lease.returnNotes != null && lease.returnNotes!.contains('Leased Equipment Items:')) {
-                            final noteStr = lease.returnNotes!.replaceFirst('Leased Equipment Items:', '').trim();
-                            if (noteStr.isNotEmpty) itemName = noteStr;
-                          }
+                          final String itemName = '${lease.quantity > 1 ? '${lease.quantity}x ' : ''}${lease.item?.name ?? "Equipment Item"}';
                           final startDateStr = '${lease.startTime.day}/${lease.startTime.month}/${lease.startTime.year}';
                           final endDateStr = '${lease.expectedEndTime.day}/${lease.expectedEndTime.month}/${lease.expectedEndTime.year}';
 
