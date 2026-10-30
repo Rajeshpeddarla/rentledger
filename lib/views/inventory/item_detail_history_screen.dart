@@ -4,18 +4,16 @@ import 'package:intl/intl.dart';
 import '../../core/config/app_theme.dart';
 import '../../core/widgets/app_image_view.dart';
 import '../../data/models/inventory_item_model.dart';
+import '../../data/models/inventory_unit_model.dart';
 import '../../data/models/lease_model.dart';
-import '../../data/models/sub_item_model.dart';
-import '../../data/repositories/sub_item_repository.dart';
+import '../../data/repositories/inventory_unit_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
 import '../../viewmodels/lease/lease_state.dart';
-import '../lease/create_lease_screen.dart';
-import '../lease/take_back_settlement_screen.dart';
 import 'add_edit_item_screen.dart';
 
-class ItemDetailHistoryScreen extends StatelessWidget {
+class ItemDetailHistoryScreen extends StatefulWidget {
   final InventoryItemModel item;
   final String currency;
 
@@ -26,10 +24,39 @@ class ItemDetailHistoryScreen extends StatelessWidget {
   });
 
   @override
+  State<ItemDetailHistoryScreen> createState() => _ItemDetailHistoryScreenState();
+}
+
+class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
+  List<InventoryUnitModel> _units = [];
+  bool _isLoadingUnits = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnits();
+  }
+
+  Future<void> _loadUnits() async {
+    try {
+      final list = await InventoryUnitRepository().getUnitsForProduct(widget.item.id);
+      if (mounted) {
+        setState(() {
+          _units = list;
+          _isLoadingUnits = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingUnits = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final storeState = context.watch<StoreCubit>().state;
     final isPro = storeState is StoreLoaded && storeState.store.isPro;
+    final item = widget.item;
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -58,11 +85,6 @@ class ItemDetailHistoryScreen extends StatelessWidget {
           final totalRevenue = itemLeases
               .where((l) => l.status == 'returned')
               .fold(0.0, (sum, l) => sum + l.netRentTotal);
-
-          final activeCount = itemLeases
-              .where((l) => l.status == 'active')
-              .fold<int>(0, (sum, l) => sum + l.quantity);
-          final availableCount = item.availableQuantity;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -102,68 +124,47 @@ class ItemDetailHistoryScreen extends StatelessWidget {
                             ),
                             child: Text(
                               item.displaySku,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? AppColors.primaryLight : AppColors.primary,
-                              ),
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
                             ),
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: availableCount > 0
+                              color: item.availableQuantity > 0
                                   ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
                                   : (isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6)),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              '$availableCount Available',
+                              '${item.availableQuantity}/${item.totalQuantity} Sets Available',
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: availableCount > 0 ? AppColors.primaryLight : AppColors.errorRed,
+                                color: item.availableQuantity > 0 ? AppColors.primaryLight : AppColors.errorRed,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        item.name,
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                        ),
-                      ),
+                      const SizedBox(height: 8),
+                      Text(item.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       if (item.description != null && item.description!.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(
-                          item.description!,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                          ),
-                        ),
+                        Text(item.description!, style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
                       ],
-                      const SizedBox(height: 16),
-                      // Rate Matrix
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildRateColumn('Hourly', '$currency${item.rateHourly.toStringAsFixed(0)}', isDark),
-                            _buildRateColumn('Daily', '$currency${item.rateDaily.toStringAsFixed(0)}', isDark),
-                            _buildRateColumn('Weekly', '$currency${item.rateWeekly.toStringAsFixed(0)}', isDark),
-                            _buildRateColumn('Deposit', '$currency${item.depositAmount.toStringAsFixed(0)}', isDark),
-                          ],
-                        ),
+                      const SizedBox(height: 14),
+                      Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                      const SizedBox(height: 10),
+
+                      // Rates Summary Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildRatePill('Hourly', widget.currency, item.rateHourly, isDark),
+                          _buildRatePill('Daily', widget.currency, item.rateDaily, isDark),
+                          _buildRatePill('Weekly', widget.currency, item.rateWeekly, isDark),
+                          _buildRatePill('Monthly', widget.currency, item.rateMonthly, isDark),
+                        ],
                       ),
                     ],
                   ),
@@ -171,17 +172,34 @@ class ItemDetailHistoryScreen extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
-                // Sub-Items Fleet Card (Displayed above Item Lifetime Revenue row)
-                _buildSubItemsListCard(context, item.id, isDark),
+                // Physical Sets & Components Card List
+                const Text('Owned Physical Sets & Component Breakdowns', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
 
-                const SizedBox(height: 16),
+                if (_isLoadingUnits)
+                  const Center(child: CircularProgressIndicator())
+                else if (_units.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkCard : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    ),
+                    child: Text('No physical sets registered. Total owned: ${item.totalQuantity} sets.', style: const TextStyle(fontSize: 12, color: AppColors.secondary)),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _units.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final unit = _units[index];
 
-                // Financial Telemetry for this Item
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
+                      return Container(
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: isDark ? AppColors.darkCard : Colors.white,
                           borderRadius: BorderRadius.circular(14),
@@ -190,98 +208,101 @@ class ItemDetailHistoryScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Item Lifetime Revenue',
-                                style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$currency${totalRevenue.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: isDark ? AppColors.primaryLight : AppColors.primary,
-                              ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(unit.assetCode, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text('Physical Set #${index + 1}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: unit.isAvailable
+                                        ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
+                                        : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    unit.status.toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: unit.isAvailable ? AppColors.primaryLight : AppColors.tertiaryAmber,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
+                            const SizedBox(height: 8),
+
+                            if (unit.components.isNotEmpty) ...[
+                              const Text('Component Units:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                              const SizedBox(height: 4),
+                              ...unit.components.map((comp) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 3),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        '• ${comp.componentName} (${comp.assetCode})${comp.serialNumber != null ? " [SN: ${comp.serialNumber}]" : ""}',
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                      Text(
+                                        comp.status,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: comp.isAvailable ? AppColors.primaryLight : AppColors.errorRed,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ],
                           ],
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkCard : Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Leases Completed',
-                                style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${itemLeases.length} ($activeCount Active)',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                      );
+                    },
+                  ),
 
                 const SizedBox(height: 20),
 
-                // Quick Dispatch CTA for this specific item
-                ElevatedButton.icon(
-                  onPressed: item.availableQuantity <= 0
-                      ? null
-                      : () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => CreateLeaseScreen(
-                                isPro: isPro,
-                                preSelectedItem: item,
-                              ),
-                            ),
-                          );
-                        },
-                  icon: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
-                  label: Text(item.availableQuantity > 0 ? 'Rent Out / Dispatch This Item' : 'All Units Currently Leased', style: const TextStyle(color: Colors.white)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Individual Item Lease History
-                Text(
-                  'Item Lease History (${itemLeases.length})',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                  ),
+                // Rental History List Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Rental History & Invoices', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    Text(
+                      'Total Earned: ${widget.currency}${totalRevenue.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
 
                 if (itemLeases.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        'No lease contracts recorded for this asset yet.',
-                        style: TextStyle(color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                      ),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkCard : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                     ),
+                    child: const Text('No past rental contracts recorded for this equipment.', style: TextStyle(fontSize: 12, color: AppColors.secondary)),
                   )
                 else
                   ListView.separated(
@@ -301,75 +322,52 @@ class ItemDetailHistoryScreen extends StatelessWidget {
                           border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                         ),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Text(
-                                      lease.customer?.name ?? 'Client',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                                      ),
-                                    ),
-                                    if (lease.quantity > 1) ...[
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          '${lease.quantity} pcs',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            color: isDark ? AppColors.primaryLight : AppColors.primary,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${DateFormat('dd MMM yyyy').format(lease.startTime)} → ${DateFormat('dd MMM yyyy').format(lease.expectedEndTime)}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                              child: const Icon(Icons.assignment, color: AppColors.primary, size: 20),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${lease.customer?.name ?? "Customer"} • ${lease.totalPieces} Pcs',
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                   ),
-                                ),
-                              ],
+                                  Text(
+                                    '${DateFormat("dd MMM yyyy").format(lease.startTime)} - ${DateFormat("dd MMM yyyy").format(lease.expectedEndTime)}',
+                                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                  ),
+                                ],
+                              ),
                             ),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  isReturned ? '$currency${lease.netRentTotal.toStringAsFixed(0)}' : 'Active',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w800,
+                                  '${widget.currency}${lease.netRentTotal.toStringAsFixed(0)}',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.primary),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
                                     color: isReturned
-                                        ? (isDark ? AppColors.primaryLight : AppColors.primary)
-                                        : AppColors.tertiaryAmber,
+                                        ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
+                                        : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    lease.status.toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold,
+                                      color: isReturned ? AppColors.primaryLight : AppColors.tertiaryAmber,
+                                    ),
                                   ),
                                 ),
-                                if (!isReturned)
-                                  GestureDetector(
-                                    onTap: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => TakeBackSettlementScreen(lease: lease),
-                                        ),
-                                      );
-                                    },
-                                    child: const Text('Take Back', style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.bold)),
-                                  ),
                               ],
                             ),
                           ],
@@ -377,8 +375,7 @@ class ItemDetailHistoryScreen extends StatelessWidget {
                       );
                     },
                   ),
-
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
               ],
             ),
           );
@@ -387,147 +384,23 @@ class ItemDetailHistoryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSubItemsListCard(BuildContext context, String itemId, bool isDark) {
-    return FutureBuilder<List<SubItemModel>>(
-      future: SubItemRepository().getSubItems(parentItemId: itemId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Container(
-            height: 60,
-            alignment: Alignment.center,
-            child: const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-          );
-        }
-
-        final subItems = snapshot.data ?? [];
-
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkCard : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+  Widget _buildRatePill(String label, String currency, double rate, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: TextStyle(fontSize: 9, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+          const SizedBox(height: 2),
+          Text(
+            '$currency${rate.toInt()}',
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.format_list_bulleted, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Sub-Items (${subItems.length})',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    'Unit Tracking',
-                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              if (subItems.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'No serial-tracked sub-items registered for this asset.',
-                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                  ),
-                )
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: subItems.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final sub = subItems[index];
-
-                    Color badgeBg;
-                    Color badgeText;
-                    String statusLabel;
-
-                    if (sub.isAvailable) {
-                      badgeBg = isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5);
-                      badgeText = AppColors.primaryLight;
-                      statusLabel = 'READY';
-                    } else if (sub.isLeased) {
-                      badgeBg = const Color(0xFFEFF4FF);
-                      badgeText = AppColors.primary;
-                      statusLabel = 'LEASED';
-                    } else if (sub.isAwaitingInspection || sub.isMaintenance) {
-                      badgeBg = const Color(0xFFFFF6E5);
-                      badgeText = AppColors.tertiaryAmber;
-                      statusLabel = sub.isMaintenance ? 'REPAIR' : 'INSPECTION';
-                    } else {
-                      badgeBg = const Color(0xFFFFDAD6);
-                      badgeText = AppColors.errorRed;
-                      statusLabel = 'LOST';
-                    }
-
-                    return Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(sub.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                Text(
-                                  sub.serialNumber != null && sub.serialNumber!.isNotEmpty
-                                      ? 'SN: ${sub.serialNumber}'
-                                      : sub.displaySku,
-                                  style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: badgeBg,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              statusLabel,
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: badgeText),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildRateColumn(String label, String value, bool isDark) {
-    return Column(
-      children: [
-        Text(label, style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-        const SizedBox(height: 2),
-        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface)),
-      ],
+        ],
+      ),
     );
   }
 }

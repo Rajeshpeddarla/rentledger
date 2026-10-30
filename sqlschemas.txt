@@ -1,0 +1,945 @@
+[
+  {
+    "table_name": "categories",
+    "column_name": "id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "categories",
+    "column_name": "store_id",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "categories",
+    "column_name": "name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "categories",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "customers",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "customers",
+    "column_name": "store_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "customers",
+    "column_name": "name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "customers",
+    "column_name": "phone",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "customers",
+    "column_name": "email",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "customers",
+    "column_name": "id_proof_r2_url",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "customers",
+    "column_name": "notes",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "customers",
+    "column_name": "total_leases_count",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "customers",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "customers",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "customers",
+    "column_name": "loyalty_points",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "store_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "code",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "title",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "discount_type",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'percentage'::text"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "discount_value",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "target_type",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'all'::text"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "target_category",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "target_item_id",
+    "data_type": "uuid",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "min_rental_days",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "1"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "is_active",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "true"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "eligible_item_ids",
+    "data_type": "ARRAY",
+    "is_nullable": "NO",
+    "column_default": "'{}'::text[]"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "expiry_date",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "(now() + '30 days'::interval)"
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "max_uses",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "discounts",
+    "column_name": "used_count",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "store_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "description",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "sku",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "''::text"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "category",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'General'::text"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "image_r2_url",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "deposit_amount",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "rate_hourly",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "rate_daily",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "rate_weekly",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "rate_monthly",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "total_quantity",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": "1"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "is_archived",
+    "data_type": "boolean",
+    "is_nullable": "NO",
+    "column_default": "false"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "tax_type",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "'No Tax'::text"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "tax_rate",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": "0.0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "is_tax_inclusive",
+    "data_type": "boolean",
+    "is_nullable": "YES",
+    "column_default": "false"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "tax_effective_date",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "tax_last_verified_date",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "is_tax_confirmed",
+    "data_type": "boolean",
+    "is_nullable": "YES",
+    "column_default": "true"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "awaiting_inspection_count",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "maintenance_count",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "reserved_count",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "inventory_items",
+    "column_name": "lost_count",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": "0"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "lease_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "store_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "item_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "quantity",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": "1"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "rate_hourly",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": "0.0"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "rate_daily",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": "0.0"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "rate_weekly",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": "0.0"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "rate_monthly",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": "0.0"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "deposit_amount",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": "0.0"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "line_calculated_rent",
+    "data_type": "numeric",
+    "is_nullable": "YES",
+    "column_default": "0.0"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "return_status",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "'available'::text"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "sub_item_ids",
+    "data_type": "jsonb",
+    "is_nullable": "YES",
+    "column_default": "'[]'::jsonb"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "lease_items",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "lease_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "lease_item_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "sub_item_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "item_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "store_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "item_name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "serial_number",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "condition_status",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "'available'::text"
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "notes",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "leased_sub_items",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": "now()"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": "gen_random_uuid()"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "store_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leases",
+    "column_name": "item_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leases",
+    "column_name": "customer_id",
+    "data_type": "uuid",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leases",
+    "column_name": "start_time",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leases",
+    "column_name": "expected_end_time",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "NO",
+    "column_default": null
+  },
+  {
+    "table_name": "leases",
+    "column_name": "actual_return_time",
+    "data_type": "timestamp with time zone",
+    "is_nullable": "YES",
+    "column_default": null
+  },
+  {
+    "table_name": "leases",
+    "column_name": "before_photo_urls",
+    "data_type": "ARRAY",
+    "is_nullable": "NO",
+    "column_default": "'{}'::text[]"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "deposit_expected",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "deposit_paid",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "advance_rent_paid",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "deposit_payment_type",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "'full'::text"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "billing_unit_used",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "'auto'::text"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "calculated_rent",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "discount_amount",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  },
+  {
+    "table_name": "leases",
+    "column_name": "damage_or_late_fee",
+    "data_type": "numeric",
+    "is_nullable": "NO",
+    "column_default": "0"
+  }
+]
+
+
+
+all table relationships:
+[
+  {
+    "source_table": "categories",
+    "source_column": "store_id",
+    "target_table": "stores",
+    "target_column": "id",
+    "constraint_name": "categories_store_id_fkey"
+  },
+  {
+    "source_table": "customers",
+    "source_column": "store_id",
+    "target_table": "stores",
+    "target_column": "id",
+    "constraint_name": "customers_store_id_fkey"
+  },
+  {
+    "source_table": "discounts",
+    "source_column": "store_id",
+    "target_table": "stores",
+    "target_column": "id",
+    "constraint_name": "discounts_store_id_fkey"
+  },
+  {
+    "source_table": "discounts",
+    "source_column": "target_item_id",
+    "target_table": "inventory_items",
+    "target_column": "id",
+    "constraint_name": "discounts_target_item_id_fkey"
+  },
+  {
+    "source_table": "inventory_items",
+    "source_column": "store_id",
+    "target_table": "stores",
+    "target_column": "id",
+    "constraint_name": "inventory_items_store_id_fkey"
+  },
+  {
+    "source_table": "lease_items",
+    "source_column": "item_id",
+    "target_table": "inventory_items",
+    "target_column": "id",
+    "constraint_name": "fk_lease_items_inventory_items"
+  },
+  {
+    "source_table": "lease_items",
+    "source_column": "lease_id",
+    "target_table": "leases",
+    "target_column": "id",
+    "constraint_name": "lease_items_lease_id_fkey"
+  },
+  {
+    "source_table": "leased_sub_items",
+    "source_column": "lease_item_id",
+    "target_table": "lease_items",
+    "target_column": "id",
+    "constraint_name": "leased_sub_items_lease_item_id_fkey"
+  },
+  {
+    "source_table": "leased_sub_items",
+    "source_column": "item_id",
+    "target_table": "inventory_items",
+    "target_column": "id",
+    "constraint_name": "fk_leased_sub_items_inventory_items"
+  },
+  {
+    "source_table": "leased_sub_items",
+    "source_column": "lease_id",
+    "target_table": "leases",
+    "target_column": "id",
+    "constraint_name": "leased_sub_items_lease_id_fkey"
+  },
+  {
+    "source_table": "leases",
+    "source_column": "store_id",
+    "target_table": "stores",
+    "target_column": "id",
+    "constraint_name": "leases_store_id_fkey"
+  },
+  {
+    "source_table": "leases",
+    "source_column": "customer_id",
+    "target_table": "customers",
+    "target_column": "id",
+    "constraint_name": "leases_customer_id_fkey"
+  },
+  {
+    "source_table": "leases",
+    "source_column": "item_id",
+    "target_table": "inventory_items",
+    "target_column": "id",
+    "constraint_name": "leases_item_id_fkey"
+  }
+]
+
+
+
+all primary keys:
+[
+  {
+    "table_name": "categories",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "customers",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "discounts",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "inventory_items",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "lease_items",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "leased_sub_items",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "leases",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "stores",
+    "primary_key_column": "id"
+  },
+  {
+    "table_name": "sub_items",
+    "primary_key_column": "id"
+  }
+]
+
+
+All Row Level Security (RLS) Policies:
+[
+  {
+    "tablename": "categories",
+    "policyname": "Categories CRUD own",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "((store_id IS NULL) OR (store_id = auth.uid()))",
+    "with_check": "(store_id = auth.uid())"
+  },
+  {
+    "tablename": "customers",
+    "policyname": "Customers CRUD own",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "(store_id = auth.uid())",
+    "with_check": "(store_id = auth.uid())"
+  },
+  {
+    "tablename": "discounts",
+    "policyname": "Stores CRUD own discounts",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "(store_id = auth.uid())",
+    "with_check": "(store_id = auth.uid())"
+  },
+  {
+    "tablename": "inventory_items",
+    "policyname": "Items CRUD own",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "(store_id = auth.uid())",
+    "with_check": "(store_id = auth.uid())"
+  },
+  {
+    "tablename": "lease_items",
+    "policyname": "Users can manage lease_items for their store",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "((auth.uid())::text = store_id)",
+    "with_check": "((auth.uid())::text = store_id)"
+  },
+  {
+    "tablename": "leased_sub_items",
+    "policyname": "Users can manage leased_sub_items for their store",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "((auth.uid())::text = store_id)",
+    "with_check": "((auth.uid())::text = store_id)"
+  },
+  {
+    "tablename": "leases",
+    "policyname": "Leases CRUD own",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "(store_id = auth.uid())",
+    "with_check": "(store_id = auth.uid())"
+  },
+  {
+    "tablename": "stores",
+    "policyname": "Store insert own",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "INSERT",
+    "qual": null,
+    "with_check": "((id = auth.uid()) AND (plan_tier = 'free'::text))"
+  },
+  {
+    "tablename": "stores",
+    "policyname": "Store select own",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "SELECT",
+    "qual": "(id = auth.uid())",
+    "with_check": null
+  },
+  {
+    "tablename": "stores",
+    "policyname": "Store update own",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "UPDATE",
+    "qual": "(id = auth.uid())",
+    "with_check": "((id = auth.uid()) AND (plan_tier = ( SELECT stores_1.plan_tier\n   FROM stores stores_1\n  WHERE (stores_1.id = auth.uid()))))"
+  },
+  {
+    "tablename": "sub_items",
+    "policyname": "Users can manage sub_items for their store",
+    "permissive": "PERMISSIVE",
+    "roles": "{public}",
+    "cmd": "ALL",
+    "qual": "((auth.uid())::text = store_id)",
+    "with_check": "((auth.uid())::text = store_id)"
+  }
+]

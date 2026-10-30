@@ -168,7 +168,7 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
           // Filter leases on the selected date by selected filter chip
           final selectedDayLeases = getEventsForDay(_selectedDay).where((l) {
             if (currentFilter == 'active') return l.status == 'active';
-            if (currentFilter == 'upcoming') return l.status == 'upcoming';
+            if (currentFilter == 'upcoming') return l.status == 'upcoming' || l.status == 'reserved' || l.isFutureReservation;
             if (currentFilter == 'overdue') return l.isOverdue;
             if (currentFilter == 'returned') return l.status == 'returned';
             return true;

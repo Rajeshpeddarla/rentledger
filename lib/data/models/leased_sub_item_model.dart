@@ -4,12 +4,15 @@ class LeasedSubItemModel extends Equatable {
   final String id;
   final String leaseId;
   final String leaseItemId;
+  final String? leaseItemUnitId;
+  final String? inventoryComponentUnitId;
   final String subItemId;
   final String itemId;
   final String storeId;
   final String itemName;
   final String? serialNumber;
-  final String conditionStatus; // 'available', 'awaiting_inspection', 'maintenance', 'lost'
+  final bool isExcluded;
+  final String conditionStatus; // 'available', 'rented', 'awaiting_inspection', 'maintenance', 'lost'
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -18,11 +21,14 @@ class LeasedSubItemModel extends Equatable {
     required this.id,
     required this.leaseId,
     required this.leaseItemId,
+    this.leaseItemUnitId,
+    this.inventoryComponentUnitId,
     required this.subItemId,
     required this.itemId,
     required this.storeId,
     required this.itemName,
     this.serialNumber,
+    this.isExcluded = false,
     this.conditionStatus = 'available',
     this.notes,
     required this.createdAt,
@@ -34,11 +40,14 @@ class LeasedSubItemModel extends Equatable {
       id: json['id'] as String,
       leaseId: json['lease_id'] as String? ?? json['leaseId'] as String? ?? '',
       leaseItemId: json['lease_item_id'] as String? ?? json['leaseItemId'] as String? ?? '',
+      leaseItemUnitId: json['lease_item_unit_id'] as String? ?? json['leaseItemUnitId'] as String?,
+      inventoryComponentUnitId: json['inventory_component_unit_id'] as String? ?? json['inventoryComponentUnitId'] as String?,
       subItemId: json['sub_item_id'] as String? ?? json['subItemId'] as String? ?? '',
       itemId: json['item_id'] as String? ?? json['itemId'] as String? ?? '',
       storeId: json['store_id'] as String? ?? json['storeId'] as String? ?? 'demo_store_1',
       itemName: json['item_name'] as String? ?? json['itemName'] as String? ?? 'Sub-Item Unit',
       serialNumber: json['serial_number'] as String?,
+      isExcluded: json['is_excluded'] as bool? ?? false,
       conditionStatus: json['condition_status'] as String? ?? 'available',
       notes: json['notes'] as String?,
       createdAt: json['created_at'] != null
@@ -55,11 +64,14 @@ class LeasedSubItemModel extends Equatable {
       'id': id,
       'lease_id': leaseId,
       'lease_item_id': leaseItemId,
+      'lease_item_unit_id': leaseItemUnitId,
+      'inventory_component_unit_id': inventoryComponentUnitId,
       'sub_item_id': subItemId,
       'item_id': itemId,
       'store_id': storeId,
       'item_name': itemName,
       'serial_number': serialNumber,
+      'is_excluded': isExcluded,
       'condition_status': conditionStatus,
       'notes': notes,
       'created_at': createdAt.toIso8601String(),
@@ -71,11 +83,14 @@ class LeasedSubItemModel extends Equatable {
     String? id,
     String? leaseId,
     String? leaseItemId,
+    String? leaseItemUnitId,
+    String? inventoryComponentUnitId,
     String? subItemId,
     String? itemId,
     String? storeId,
     String? itemName,
     String? serialNumber,
+    bool? isExcluded,
     String? conditionStatus,
     String? notes,
     DateTime? createdAt,
@@ -85,11 +100,14 @@ class LeasedSubItemModel extends Equatable {
       id: id ?? this.id,
       leaseId: leaseId ?? this.leaseId,
       leaseItemId: leaseItemId ?? this.leaseItemId,
+      leaseItemUnitId: leaseItemUnitId ?? this.leaseItemUnitId,
+      inventoryComponentUnitId: inventoryComponentUnitId ?? this.inventoryComponentUnitId,
       subItemId: subItemId ?? this.subItemId,
       itemId: itemId ?? this.itemId,
       storeId: storeId ?? this.storeId,
       itemName: itemName ?? this.itemName,
       serialNumber: serialNumber ?? this.serialNumber,
+      isExcluded: isExcluded ?? this.isExcluded,
       conditionStatus: conditionStatus ?? this.conditionStatus,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
@@ -102,11 +120,14 @@ class LeasedSubItemModel extends Equatable {
         id,
         leaseId,
         leaseItemId,
+        leaseItemUnitId,
+        inventoryComponentUnitId,
         subItemId,
         itemId,
         storeId,
         itemName,
         serialNumber,
+        isExcluded,
         conditionStatus,
         notes,
         createdAt,
