@@ -830,7 +830,13 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
   Widget _buildCategoryCard(bool isDark) {
     final categoryState = context.watch<CategoryCubit>().state;
-    final categories = categoryState is CategoryLoaded ? categoryState.categories : <String>['Cameras', 'Lenses', 'Lighting', 'Audio', 'Drones', 'General'];
+    final List<String> categoryNames = categoryState is CategoryLoaded
+        ? categoryState.categoryNames
+        : <String>['Cameras', 'Lenses', 'Lighting', 'Audio', 'Drones', 'General'];
+
+    final String effectiveValue = categoryNames.contains(_selectedCategory)
+        ? _selectedCategory
+        : (categoryNames.isNotEmpty ? categoryNames.first : 'General');
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -859,17 +865,16 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           const SizedBox(height: 8),
 
           DropdownButtonFormField<String>(
-            initialValue: categories.contains(_selectedCategory) ? _selectedCategory : (categories.firstOrNull as String? ?? 'General'),
+            value: effectiveValue,
             isExpanded: true,
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.category_outlined),
               isDense: true,
             ),
-            items: categories.map((cat) {
-              final String catStr = cat.toString();
+            items: categoryNames.map((catName) {
               return DropdownMenuItem<String>(
-                value: catStr,
-                child: Text(catStr, style: const TextStyle(fontSize: 13)),
+                value: catName,
+                child: Text(catName, style: const TextStyle(fontSize: 13)),
               );
             }).toList(),
             onChanged: (val) {
