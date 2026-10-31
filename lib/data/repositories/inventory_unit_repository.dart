@@ -111,6 +111,15 @@ class InventoryUnitRepository {
         final unitRes = await _client.from('inventory_units').upsert(unitPayload).select().single();
         final savedUnit = InventoryUnitModel.fromJson(unitRes);
 
+        // Clean up available component units before re-inserting updated component units
+        try {
+          await _client
+              .from('inventory_component_units')
+              .delete()
+              .eq('inventory_unit_id', savedUnit.id)
+              .eq('status', 'available');
+        } catch (_) {}
+
         for (final comp in unit.components) {
           final compPayload = comp.copyWith(
             inventoryUnitId: savedUnit.id,

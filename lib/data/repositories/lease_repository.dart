@@ -196,7 +196,7 @@ class LeaseRepository {
               final lineRes = await _client.from('lease_items').upsert(linePayload).select().single();
               final savedLine = LeaseItemModel.fromJson(lineRes);
 
-              // Save leased sub-items if present
+              // Save leased sub-items if present & sync physical asset statuses
               final List<LeasedSubItemModel> savedSubItems = [];
               if (line.leasedSubItems.isNotEmpty) {
                 for (final sub in line.leasedSubItems) {
@@ -208,6 +208,36 @@ class LeaseRepository {
                   try {
                     final subRes = await _client.from('leased_sub_items').upsert(subPayload).select().single();
                     savedSubItems.add(LeasedSubItemModel.fromJson(subRes));
+
+                    // Sync physical asset states
+                    if (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty) {
+                      try {
+                        await _client.from('lease_item_units').upsert({
+                          'id': '${created.id}_unit_${sub.leaseItemUnitId}',
+                          'lease_id': created.id,
+                          'lease_item_id': savedLine.id,
+                          'inventory_unit_id': sub.leaseItemUnitId,
+                          'checked_out_at': created.startTime.toIso8601String(),
+                          'inspection_status': 'rented',
+                        });
+                      } catch (_) {}
+
+                      try {
+                        await _client
+                            .from('inventory_units')
+                            .update({'status': 'rented'})
+                            .eq('id', sub.leaseItemUnitId!);
+                      } catch (_) {}
+                    }
+
+                    if (!sub.isExcluded && sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty) {
+                      try {
+                        await _client
+                            .from('inventory_component_units')
+                            .update({'status': 'rented'})
+                            .eq('id', sub.inventoryComponentUnitId!);
+                      } catch (_) {}
+                    }
                   } catch (subErr) {
                     debugPrint('LeaseRepository.createLease leased_sub_items insert warning: $subErr');
                     savedSubItems.add(sub);
@@ -298,6 +328,36 @@ class LeaseRepository {
                         .from('leased_sub_items')
                         .update(sub.toJson())
                         .eq('id', sub.id);
+
+                    // Sync physical asset states back to available upon return
+                    if (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty) {
+                      try {
+                        await _client
+                            .from('lease_item_units')
+                            .update({
+                              'returned_at': (updated.actualReturnTime ?? DateTime.now()).toIso8601String(),
+                              'inspection_status': 'inspected_good',
+                            })
+                            .eq('lease_id', updated.id)
+                            .eq('inventory_unit_id', sub.leaseItemUnitId!);
+                      } catch (_) {}
+
+                      try {
+                        await _client
+                            .from('inventory_units')
+                            .update({'status': 'available'})
+                            .eq('id', sub.leaseItemUnitId!);
+                      } catch (_) {}
+                    }
+
+                    if (sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty) {
+                      try {
+                        await _client
+                            .from('inventory_component_units')
+                            .update({'status': 'available'})
+                            .eq('id', sub.inventoryComponentUnitId!);
+                      } catch (_) {}
+                    }
                   } catch (subErr) {
                     debugPrint('LeaseRepository.returnAndSettleLease leased_sub_items update warning: $subErr');
                   }

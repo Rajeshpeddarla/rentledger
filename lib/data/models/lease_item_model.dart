@@ -14,6 +14,13 @@ class LeaseItemModel extends Equatable {
   final double rateDaily;
   final double rateWeekly;
   final double rateMonthly;
+
+  // Optional Negotiated Discounted Rates per line item
+  final double discountedRateHourly;
+  final double discountedRateDaily;
+  final double discountedRateWeekly;
+  final double discountedRateMonthly;
+
   final double depositAmount;
   final double lineCalculatedRent;
 
@@ -37,6 +44,10 @@ class LeaseItemModel extends Equatable {
     this.rateDaily = 0.0,
     this.rateWeekly = 0.0,
     this.rateMonthly = 0.0,
+    this.discountedRateHourly = 0.0,
+    this.discountedRateDaily = 0.0,
+    this.discountedRateWeekly = 0.0,
+    this.discountedRateMonthly = 0.0,
     this.depositAmount = 0.0,
     this.lineCalculatedRent = 0.0,
     this.returnStatus = 'available',
@@ -46,6 +57,12 @@ class LeaseItemModel extends Equatable {
     this.item,
     this.leasedSubItems = const [],
   });
+
+  // Effective rates used for rent calculations
+  double get effectiveRateHourly => discountedRateHourly > 0 ? discountedRateHourly : rateHourly;
+  double get effectiveRateDaily => discountedRateDaily > 0 ? discountedRateDaily : rateDaily;
+  double get effectiveRateWeekly => discountedRateWeekly > 0 ? discountedRateWeekly : rateWeekly;
+  double get effectiveRateMonthly => discountedRateMonthly > 0 ? discountedRateMonthly : rateMonthly;
 
   factory LeaseItemModel.fromJson(Map<String, dynamic> json) {
     List<String> subItems = [];
@@ -70,6 +87,10 @@ class LeaseItemModel extends Equatable {
       rateDaily: (json['rate_daily'] as num?)?.toDouble() ?? 0.0,
       rateWeekly: (json['rate_weekly'] as num?)?.toDouble() ?? 0.0,
       rateMonthly: (json['rate_monthly'] as num?)?.toDouble() ?? 0.0,
+      discountedRateHourly: (json['discounted_rate_hourly'] as num?)?.toDouble() ?? 0.0,
+      discountedRateDaily: (json['discounted_rate_daily'] as num?)?.toDouble() ?? 0.0,
+      discountedRateWeekly: (json['discounted_rate_weekly'] as num?)?.toDouble() ?? 0.0,
+      discountedRateMonthly: (json['discounted_rate_monthly'] as num?)?.toDouble() ?? 0.0,
       depositAmount: (json['deposit_amount'] as num?)?.toDouble() ?? 0.0,
       lineCalculatedRent: (json['line_calculated_rent'] as num?)?.toDouble() ?? 0.0,
       returnStatus: json['return_status'] as String? ?? 'available',
@@ -98,6 +119,10 @@ class LeaseItemModel extends Equatable {
       'rate_daily': rateDaily,
       'rate_weekly': rateWeekly,
       'rate_monthly': rateMonthly,
+      'discounted_rate_hourly': discountedRateHourly,
+      'discounted_rate_daily': discountedRateDaily,
+      'discounted_rate_weekly': discountedRateWeekly,
+      'discounted_rate_monthly': discountedRateMonthly,
       'deposit_amount': depositAmount,
       'line_calculated_rent': lineCalculatedRent,
       'return_status': returnStatus,
@@ -117,6 +142,10 @@ class LeaseItemModel extends Equatable {
     double? rateDaily,
     double? rateWeekly,
     double? rateMonthly,
+    double? discountedRateHourly,
+    double? discountedRateDaily,
+    double? discountedRateWeekly,
+    double? discountedRateMonthly,
     double? depositAmount,
     double? lineCalculatedRent,
     String? returnStatus,
@@ -136,6 +165,10 @@ class LeaseItemModel extends Equatable {
       rateDaily: rateDaily ?? this.rateDaily,
       rateWeekly: rateWeekly ?? this.rateWeekly,
       rateMonthly: rateMonthly ?? this.rateMonthly,
+      discountedRateHourly: discountedRateHourly ?? this.discountedRateHourly,
+      discountedRateDaily: discountedRateDaily ?? this.discountedRateDaily,
+      discountedRateWeekly: discountedRateWeekly ?? this.discountedRateWeekly,
+      discountedRateMonthly: discountedRateMonthly ?? this.discountedRateMonthly,
       depositAmount: depositAmount ?? this.depositAmount,
       lineCalculatedRent: lineCalculatedRent ?? this.lineCalculatedRent,
       returnStatus: returnStatus ?? this.returnStatus,
@@ -158,6 +191,10 @@ class LeaseItemModel extends Equatable {
         rateDaily,
         rateWeekly,
         rateMonthly,
+        discountedRateHourly,
+        discountedRateDaily,
+        discountedRateWeekly,
+        discountedRateMonthly,
         depositAmount,
         lineCalculatedRent,
         returnStatus,

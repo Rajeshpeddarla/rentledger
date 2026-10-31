@@ -35,10 +35,11 @@ class ComponentDefinitionInput {
 }
 
 class PhysicalSetInput {
+  String? unitId;
   String assetCode;
   Map<String, int> componentQuantities; // componentName -> qty
 
-  PhysicalSetInput({required this.assetCode, required this.componentQuantities});
+  PhysicalSetInput({this.unitId, required this.assetCode, required this.componentQuantities});
 }
 
 class AddEditItemScreen extends StatefulWidget {
@@ -122,12 +123,9 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   }
 
   void _addDefaultComponentTemplates() {
-    _componentDefInputs.addAll([
+    _componentDefInputs.add(
       ComponentDefinitionInput(name: 'Main Body', qty: 1, isRequired: true),
-      ComponentDefinitionInput(name: 'Battery', qty: 1, isRequired: true),
-      ComponentDefinitionInput(name: 'Charger', qty: 1, isRequired: true),
-      ComponentDefinitionInput(name: 'Bag', qty: 1, isRequired: false),
-    ]);
+    );
   }
 
   Future<void> _loadExistingDefinitions(String productId) async {
@@ -253,39 +251,116 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     }
   }
 
+  String _capitalizeFirstLetter(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return trimmed;
+    if (trimmed.length == 1) return trimmed.toUpperCase();
+    return '${trimmed[0].toUpperCase()}${trimmed.substring(1)}';
+  }
+
+  bool _isGeneratingSets = false;
+
   void _proceedToStep2() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final int setsCount = int.tryParse(_setsCountController.text) ?? 1;
-    final tag = _skuController.text.trim().isNotEmpty
-        ? _skuController.text.trim().toUpperCase()
-        : 'UNIT';
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _isGeneratingSets = true);
 
-    // Generate physical set cards initially with standard component quantities
-    _physicalSetInputs.clear();
+    try {
+      final int setsCount = int.tryParse(_setsCountController.text) ?? 1;
+      final tag = _skuController.text.trim().isNotEmpty
+          ? _skuController.text.trim().toUpperCase()
+          : 'UNIT';
 
-    final repo = InventoryUnitRepository();
+      final repo = InventoryUnitRepository();
+      _physicalSetInputs.clear();
 
-    for (int i = 1; i <= setsCount; i++) {
-      final assetCode = await repo.generateAssetCode(tag, 'physical_unit');
+      // Load existing physical sets if editing an existing equipment item
+      List<InventoryUnitModel> existingUnits = [];
+      if (widget.initialItem != null) {
+        existingUnits = await repo.getUnitsForProduct(widget.initialItem!.id);
+      }
 
-      final Map<String, int> compMap = {};
+      // Build standard template component map from Step 1 inputs
+      final Map<String, int> defaultCompMap = {};
       for (final comp in _componentDefInputs) {
-        final name = comp.nameCtrl.text.trim();
+        final name = _capitalizeFirstLetter(comp.nameCtrl.text);
         final qty = int.tryParse(comp.qtyCtrl.text.trim()) ?? 1;
-        if (name.isNotEmpty && qty > 0) {
-          compMap[name] = qty;
+        if (name.isNotEmpty) {
+          defaultCompMap[name] = qty;
         }
       }
 
-      _physicalSetInputs.add(
-        PhysicalSetInput(assetCode: assetCode, componentQuantities: compMap),
-      );
-    }
+      for (int i = 0; i < setsCount; i++) {
+        if (i < existingUnits.length) {
+          // Reuse existing physical unit asset code and saved component piece counts!
+          final existing = existingUnits[i];
 
-    setState(() {
-      _currentStep = 2;
-    });
+          final Map<String, int> savedCompMap = {};
+
+          // 1. Initialize ALL template component names with 0
+          for (final entry in defaultCompMap.entries) {
+            savedCompMap[entry.key] = 0;
+          }
+
+          // 2. Count existing component units for this physical set
+          for (final compUnit in existing.components) {
+            savedCompMap[compUnit.componentName] =
+                (savedCompMap[compUnit.componentName] ?? 0) + 1;
+          }
+
+          _physicalSetInputs.add(
+            PhysicalSetInput(
+              unitId: existing.id,
+              assetCode: existing.assetCode,
+              componentQuantities: savedCompMap,
+            ),
+          );
+        } else {
+          // Newly added physical set (beyond previous count)
+          final assetCode = await repo.generateAssetCode(tag, 'physical_unit');
+          _physicalSetInputs.add(
+            PhysicalSetInput(
+              assetCode: assetCode,
+              componentQuantities: Map<String, int>.from(defaultCompMap),
+            ),
+          );
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _currentStep = 2;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Unable to configure physical sets: $e',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.errorRed,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGeneratingSets = false);
+      }
+    }
   }
 
   Future<void> _handleFinalSave() async {
@@ -314,8 +389,8 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       final itemModel = InventoryItemModel(
         id: itemId,
         storeId: store.id,
-        name: _nameController.text.trim(),
-        description: _descController.text.trim(),
+        name: _capitalizeFirstLetter(_nameController.text),
+        description: _capitalizeFirstLetter(_descController.text),
         sku: _skuController.text.trim().toUpperCase(),
         category: _selectedCategory,
         imageR2Url: uploadedUrl,
@@ -337,7 +412,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       // 3. Save Component Definitions Template
       final List<SubItemDefinitionModel> defModels = [];
       for (final comp in _componentDefInputs) {
-        final name = comp.nameCtrl.text.trim();
+        final name = _capitalizeFirstLetter(comp.nameCtrl.text);
         final qty = int.tryParse(comp.qtyCtrl.text.trim()) ?? 1;
         if (name.isNotEmpty) {
           defModels.add(SubItemDefinitionModel(
@@ -360,7 +435,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       final List<InventoryUnitModel> unitModels = [];
 
       for (final setInput in _physicalSetInputs) {
-        final unitId = UuidGenerator.generateV4();
+        final unitId = setInput.unitId ?? UuidGenerator.generateV4();
 
         final List<InventoryComponentUnitModel> compUnits = [];
 
@@ -462,18 +537,41 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isEdit = widget.initialItem != null;
 
-    return Scaffold(
-      backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-      appBar: AppBar(
-        title: Text(_currentStep == 1
-            ? (isEdit ? 'Edit Equipment' : 'Add New Equipment')
-            : 'Configure Physical Sets'),
-        elevation: 0,
+    return PopScope(
+      canPop: _currentStep == 1,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_currentStep == 2) {
+          setState(() {
+            _currentStep = 1;
+          });
+        }
+      },
+      child: Scaffold(
         backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: _currentStep == 1 ? _buildStep1GeneralDetails(context, isDark) : _buildStep2PhysicalSetsConfig(context, isDark),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (_currentStep == 2) {
+                setState(() {
+                  _currentStep = 1;
+                });
+              } else {
+                Navigator.pop(context);
+              }
+            },
+          ),
+          title: Text(_currentStep == 1
+              ? (isEdit ? 'Edit Equipment' : 'Add New Equipment')
+              : 'Configure Physical Sets'),
+          elevation: 0,
+          backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: _currentStep == 1 ? _buildStep1GeneralDetails(context, isDark) : _buildStep2PhysicalSetsConfig(context, isDark),
+        ),
       ),
     );
   }
@@ -530,20 +628,29 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
           // Next Step CTA
           ElevatedButton(
-            onPressed: _proceedToStep2,
+            onPressed: (_isSaving || _isGeneratingSets) ? null : _proceedToStep2,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               minimumSize: const Size.fromHeight(50),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('Continue to Configure Physical Sets', style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(width: 8),
-                Icon(Icons.arrow_forward, size: 18),
-              ],
-            ),
+            child: _isGeneratingSets
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('Continue to Configure Physical Sets', style: TextStyle(fontWeight: FontWeight.bold)),
+                      SizedBox(width: 8),
+                      Icon(Icons.arrow_forward, size: 18),
+                    ],
+                  ),
           ),
           const SizedBox(height: 32),
         ],
@@ -701,7 +808,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () {
+                onPressed: _isSaving ? null : () {
                   setState(() => _currentStep = 1);
                 },
                 icon: const Icon(Icons.arrow_back, size: 18),
@@ -796,6 +903,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         children: [
           TextFormField(
             controller: _nameController,
+            textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
               labelText: 'Equipment Name *',
               hintText: 'e.g. Sony FX3 Cinema Camera Set',
@@ -816,6 +924,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           const SizedBox(height: 12),
           TextFormField(
             controller: _descController,
+            textCapitalization: TextCapitalization.sentences,
             maxLines: 2,
             decoration: const InputDecoration(
               labelText: 'Description & Features (Optional)',
@@ -825,6 +934,118 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _openCategoryPickerModal(BuildContext context, List<String> categoryNames, bool isDark) {
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkBorder : Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Select Category',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : AppColors.lightOnSurface,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const CategoryListScreen()),
+                      );
+                    },
+                    child: const Text('Manage', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.45,
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: categoryNames.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 6),
+                  itemBuilder: (context, index) {
+                    final cat = categoryNames[index];
+                    final isSelected = cat == _selectedCategory;
+
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedCategory = cat;
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? AppColors.primaryLight.withValues(alpha: 0.15) : AppColors.primary.withValues(alpha: 0.08))
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? AppColors.primary
+                                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              cat,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                color: isSelected
+                                    ? (isDark ? AppColors.primaryLight : AppColors.primary)
+                                    : (isDark ? Colors.white : AppColors.lightOnSurface),
+                              ),
+                            ),
+                            if (isSelected)
+                              const Icon(Icons.check_circle, color: AppColors.primary, size: 18),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -864,24 +1085,30 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           ),
           const SizedBox(height: 8),
 
-          DropdownButtonFormField<String>(
-            value: effectiveValue,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.category_outlined),
-              isDense: true,
+          InkWell(
+            onTap: () => _openCategoryPickerModal(context, categoryNames, isDark),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.category_outlined, size: 20, color: AppColors.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      effectiveValue,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(Icons.keyboard_arrow_down, size: 20, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                ],
+              ),
             ),
-            items: categoryNames.map((catName) {
-              return DropdownMenuItem<String>(
-                value: catName,
-                child: Text(catName, style: const TextStyle(fontSize: 13)),
-              );
-            }).toList(),
-            onChanged: (val) {
-              if (val != null) {
-                setState(() => _selectedCategory = val);
-              }
-            },
           ),
         ],
       ),
@@ -902,15 +1129,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Default Component Templates', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    Text('Standard accessories included in 1 physical set', style: TextStyle(fontSize: 10, color: AppColors.secondary)),
-                  ],
-                ),
-              ),
+              const Text('Default Components', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               TextButton.icon(
                 onPressed: () {
                   setState(() {
@@ -918,11 +1137,19 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                   });
                 },
                 icon: const Icon(Icons.add, size: 16),
-                label: const Text('+ Add Component', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                label: const Text('Add Component', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 4),
+          Text(
+            'Standard accessories included in 1 physical set',
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+            ),
+          ),
+          const SizedBox(height: 12),
 
           ListView.separated(
             shrinkWrap: true,
@@ -938,6 +1165,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                     flex: 3,
                     child: TextFormField(
                       controller: comp.nameCtrl,
+                      textCapitalization: TextCapitalization.words,
                       decoration: const InputDecoration(
                         hintText: 'Component Name (e.g. Battery)',
                         isDense: true,

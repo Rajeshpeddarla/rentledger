@@ -23,6 +23,7 @@ class LeaseModel extends Equatable {
   final String billingUnitUsed; // 'auto', 'hourly', 'daily', etc.
   final double calculatedRent;
   final double discountAmount;
+  final double discountedNetRentTotal; // Final net rent after discount & post-discount taxes
   final double damageOrLateFee;
   final double netRentTotal;
   final double finalSettlementBalance;
@@ -65,6 +66,7 @@ class LeaseModel extends Equatable {
     this.billingUnitUsed = 'auto',
     this.calculatedRent = 0.0,
     this.discountAmount = 0.0,
+    this.discountedNetRentTotal = 0.0,
     this.damageOrLateFee = 0.0,
     this.netRentTotal = 0.0,
     this.finalSettlementBalance = 0.0,
@@ -181,6 +183,7 @@ class LeaseModel extends Equatable {
       billingUnitUsed: json['billing_unit_used'] as String? ?? 'auto',
       calculatedRent: (json['calculated_rent'] as num?)?.toDouble() ?? 0.0,
       discountAmount: (json['discount_amount'] as num?)?.toDouble() ?? 0.0,
+      discountedNetRentTotal: (json['discounted_net_rent_total'] as num?)?.toDouble() ?? 0.0,
       damageOrLateFee: (json['damage_or_late_fee'] as num?)?.toDouble() ?? 0.0,
       netRentTotal: (json['net_rent_total'] as num?)?.toDouble() ?? 0.0,
       finalSettlementBalance:
@@ -230,6 +233,7 @@ class LeaseModel extends Equatable {
       'billing_unit_used': billingUnitUsed,
       'calculated_rent': calculatedRent,
       'discount_amount': discountAmount,
+      'discounted_net_rent_total': discountedNetRentTotal,
       'damage_or_late_fee': damageOrLateFee,
       'net_rent_total': netRentTotal,
       'final_settlement_balance': finalSettlementBalance,
@@ -272,6 +276,7 @@ class LeaseModel extends Equatable {
     String? billingUnitUsed,
     double? calculatedRent,
     double? discountAmount,
+    double? discountedNetRentTotal,
     double? damageOrLateFee,
     double? netRentTotal,
     double? finalSettlementBalance,
@@ -307,6 +312,7 @@ class LeaseModel extends Equatable {
       billingUnitUsed: billingUnitUsed ?? this.billingUnitUsed,
       calculatedRent: calculatedRent ?? this.calculatedRent,
       discountAmount: discountAmount ?? this.discountAmount,
+      discountedNetRentTotal: discountedNetRentTotal ?? this.discountedNetRentTotal,
       damageOrLateFee: damageOrLateFee ?? this.damageOrLateFee,
       netRentTotal: netRentTotal ?? this.netRentTotal,
       finalSettlementBalance:
@@ -346,6 +352,7 @@ class LeaseModel extends Equatable {
         billingUnitUsed,
         calculatedRent,
         discountAmount,
+        discountedNetRentTotal,
         damageOrLateFee,
         netRentTotal,
         finalSettlementBalance,

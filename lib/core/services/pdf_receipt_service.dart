@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/utils/rate_calculator.dart';
 import '../../data/models/lease_item_model.dart';
 import '../../data/models/lease_model.dart';
+import '../../data/models/leased_sub_item_model.dart';
 import '../../data/models/store_model.dart';
 
 class PdfReceiptService {
@@ -180,10 +181,10 @@ class PdfReceiptService {
       final b = RateCalculator.getReturnRentBreakdown(
         startTime: lease.startTime,
         actualReturnTime: lease.expectedEndTime,
-        rateHourly: line.rateHourly,
-        rateDaily: line.rateDaily,
-        rateWeekly: line.rateWeekly,
-        rateMonthly: line.rateMonthly,
+        rateHourly: line.effectiveRateHourly,
+        rateDaily: line.effectiveRateDaily,
+        rateWeekly: line.effectiveRateWeekly,
+        rateMonthly: line.effectiveRateMonthly,
         currency: currency,
       );
       final unitRent = b.totalRent;
@@ -449,10 +450,10 @@ class PdfReceiptService {
                     final itemBreakdown = RateCalculator.getReturnRentBreakdown(
                       startTime: lease.startTime,
                       actualReturnTime: lease.expectedEndTime,
-                      rateHourly: line.rateHourly,
-                      rateDaily: line.rateDaily,
-                      rateWeekly: line.rateWeekly,
-                      rateMonthly: line.rateMonthly,
+                      rateHourly: line.effectiveRateHourly,
+                      rateDaily: line.effectiveRateDaily,
+                      rateWeekly: line.effectiveRateWeekly,
+                      rateMonthly: line.effectiveRateMonthly,
                       currency: currency,
                     );
 
@@ -460,10 +461,10 @@ class PdfReceiptService {
                     final itemSubtotalCost = singleUnitCost * line.quantity;
 
                     String itemDisplayRateUnit = '/ day';
-                    double itemDisplayRate = line.rateDaily;
-                    if (itemDuration.inHours < 24 && line.rateHourly > 0) {
+                    double itemDisplayRate = line.effectiveRateDaily;
+                    if (itemDuration.inHours < 24 && line.effectiveRateHourly > 0) {
                       itemDisplayRateUnit = '/ hr';
-                      itemDisplayRate = line.rateHourly;
+                      itemDisplayRate = line.effectiveRateHourly;
                     }
 
                     return [
@@ -511,43 +512,6 @@ class PdfReceiptService {
                           ),
                         ],
                       ),
-                      pw.TableRow(
-                        decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F8FAFC')),
-                        children: [
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Column(
-                              crossAxisAlignment: pw.CrossAxisAlignment.start,
-                              children: [
-                                pw.Text(
-                                  'Step-by-Step Cost Calculation:',
-                                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy),
-                                ),
-                                pw.SizedBox(height: 2),
-                                ...itemBreakdown.components.map((comp) {
-                                  final compTotal = comp.amount * line.quantity;
-                                  return pw.Text(
-                                    '• ${comp.label}: ${comp.calculation} = $currency${comp.amount.toStringAsFixed(2)} / pc'
-                                    '${line.quantity > 1 ? " (Total for ${line.quantity} pcs = $currency${compTotal.toStringAsFixed(2)})" : ""}',
-                                    style: pw.TextStyle(fontSize: 8, color: _ink),
-                                  );
-                                }),
-                                pw.SizedBox(height: 2),
-                                pw.Text(
-                                  line.quantity > 1
-                                      ? 'Formula: ${line.quantity} pcs × $currency${singleUnitCost.toStringAsFixed(2)} / pc = $currency${itemSubtotalCost.toStringAsFixed(2)}'
-                                      : 'Formula: 1 pc × $currency${singleUnitCost.toStringAsFixed(2)} = $currency${itemSubtotalCost.toStringAsFixed(2)}',
-                                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _teal),
-                                ),
-                              ],
-                            ),
-                          ),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                        ],
-                      ),
                     ];
                   }),
                   pw.TableRow(
@@ -569,6 +533,115 @@ class PdfReceiptService {
                 ],
               ),
             ),
+
+            // Side-by-Side Physical Set Piece Cards & Component Handover Chips
+            if (lineItemsToRender.any((l) => l.leasedSubItems.isNotEmpty)) ...[
+              pw.SizedBox(height: 12),
+              pw.Text('PHYSICAL SET ASSIGNMENTS & COMPONENT HANDOVER CHIPS', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
+              pw.SizedBox(height: 6),
+
+              pw.Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: (() {
+                  final List<pw.Widget> pieceCards = [];
+
+                  for (final line in lineItemsToRender) {
+                    final skuTag = (line.item?.sku != null && line.item!.sku.trim().isNotEmpty)
+                        ? line.item!.sku.trim().toUpperCase()
+                        : 'UNIT';
+
+                    final Map<String, List<LeasedSubItemModel>> groupedByUnit = {};
+
+                    for (final sub in line.leasedSubItems) {
+                      final unitKey = (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty)
+                          ? sub.leaseItemUnitId!
+                          : 'unit_default';
+                      groupedByUnit.putIfAbsent(unitKey, () => []).add(sub);
+                    }
+
+                    int pieceNum = 1;
+                    for (final entry in groupedByUnit.entries) {
+                      final subList = entry.value;
+                      final assetCode = '$skuTag-${pieceNum.toString().padLeft(4, '0')}';
+
+                      pieceCards.add(
+                        pw.Container(
+                          width: 250,
+                          padding: const pw.EdgeInsets.all(8),
+                          decoration: pw.BoxDecoration(
+                            color: _panel,
+                            borderRadius: pw.BorderRadius.circular(6),
+                            border: pw.Border.all(color: _line),
+                          ),
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Row(
+                                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                                children: [
+                                  pw.Expanded(
+                                    child: pw.Text(
+                                      line.item?.name ?? "Equipment Set",
+                                      style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: _navy),
+                                    ),
+                                  ),
+                                  pw.SizedBox(width: 6),
+                                  pw.Container(
+                                    padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: pw.BoxDecoration(
+                                      color: _navy,
+                                      borderRadius: pw.BorderRadius.circular(4),
+                                    ),
+                                    child: pw.Text(
+                                      assetCode,
+                                      style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              pw.SizedBox(height: 6),
+
+                              pw.Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                children: subList.map((sub) {
+                                  final isExcluded = sub.isExcluded;
+                                  final chipText = isExcluded
+                                      ? '[EXCLUDED] ${sub.itemName}'
+                                      : '${sub.itemName}${sub.serialNumber != null ? " [SN: ${sub.serialNumber}]" : ""}';
+                                  return pw.Container(
+                                    padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                    decoration: pw.BoxDecoration(
+                                      color: isExcluded ? PdfColor.fromHex('#FCE8E6') : PdfColor.fromHex('#E6F4EA'),
+                                      borderRadius: pw.BorderRadius.circular(4),
+                                      border: pw.Border.all(
+                                        color: isExcluded ? _red : _green,
+                                        width: 0.5,
+                                      ),
+                                    ),
+                                    child: pw.Text(
+                                      chipText,
+                                      style: pw.TextStyle(
+                                        fontSize: 7,
+                                        fontWeight: pw.FontWeight.bold,
+                                        color: isExcluded ? _red : _green,
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                  return pieceCards;
+                })(),
+              ),
+            ],
             pw.SizedBox(height: 16),
 
             // Financial Summary Grid
@@ -598,10 +671,30 @@ class PdfReceiptService {
                               pw.Row(
                                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                                 children: [
-                                  pw.Text('Estimated rental charges', style: pw.TextStyle(fontSize: 10, color: _muted)),
+                                  pw.Text('Subtotal (Equipment rent)', style: pw.TextStyle(fontSize: 10, color: _muted)),
                                   pw.Text('$currency${totalGrandEstimatedRent.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                                 ],
                               ),
+                              if (lease.discountAmount > 0) ...[
+                                pw.SizedBox(height: 4),
+                                pw.Row(
+                                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    pw.Text('Discount applied', style: pw.TextStyle(fontSize: 10, color: _muted)),
+                                    pw.Text('-$currency${lease.discountAmount.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _red)),
+                                  ],
+                                ),
+                              ],
+                              if (lease.taxAmount > 0) ...[
+                                pw.SizedBox(height: 4),
+                                pw.Row(
+                                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    pw.Text('Taxes (${lease.appliedTaxType} ${lease.appliedTaxRate.toInt()}%)', style: pw.TextStyle(fontSize: 10, color: _muted)),
+                                    pw.Text('${lease.isTaxInclusive ? "" : "+"}$currency${lease.taxAmount.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _teal)),
+                                  ],
+                                ),
+                              ],
                               pw.SizedBox(height: 4),
                               pw.Row(
                                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -617,7 +710,10 @@ class PdfReceiptService {
                                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                                 children: [
                                   pw.Text('Estimated rent balance', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
-                                  pw.Text('$currency${(totalGrandEstimatedRent - lease.advanceRentPaid < 0 ? 0.0 : totalGrandEstimatedRent - lease.advanceRentPaid).toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy)),
+                                  pw.Text(
+                                    '$currency${((lease.discountedNetRentTotal > 0 ? lease.discountedNetRentTotal : lease.netRentTotal) - lease.advanceRentPaid < 0 ? 0.0 : (lease.discountedNetRentTotal > 0 ? lease.discountedNetRentTotal : lease.netRentTotal) - lease.advanceRentPaid).toStringAsFixed(2)}',
+                                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy),
+                                  ),
                                 ],
                               ),
                             ],
@@ -765,21 +861,37 @@ class PdfReceiptService {
     double totalGrandExpectedDeposit = 0.0;
 
     for (final l in leaseList) {
-      final item = l.item;
-      final b = item != null
-          ? RateCalculator.getReturnRentBreakdown(
-              startTime: l.startTime,
-              actualReturnTime: l.expectedEndTime,
-              rateHourly: item.rateHourly,
-              rateDaily: item.rateDaily,
-              rateWeekly: item.rateWeekly,
-              rateMonthly: item.rateMonthly,
-              currency: currency,
-            )
-          : null;
-      final unitRent = b?.totalRent ?? 0.0;
-      totalGrandEstimatedRent += (unitRent * l.quantity);
-      totalGrandExpectedDeposit += l.depositExpected;
+      if (l.leaseItems.isNotEmpty) {
+        for (final line in l.leaseItems) {
+          final b = RateCalculator.getReturnRentBreakdown(
+            startTime: l.startTime,
+            actualReturnTime: l.expectedEndTime,
+            rateHourly: line.effectiveRateHourly,
+            rateDaily: line.effectiveRateDaily,
+            rateWeekly: line.effectiveRateWeekly,
+            rateMonthly: line.effectiveRateMonthly,
+            currency: currency,
+          );
+          totalGrandEstimatedRent += (b.totalRent * line.quantity);
+          totalGrandExpectedDeposit += (line.depositAmount * line.quantity);
+        }
+      } else {
+        final item = l.item;
+        final b = item != null
+            ? RateCalculator.getReturnRentBreakdown(
+                startTime: l.startTime,
+                actualReturnTime: l.expectedEndTime,
+                rateHourly: item.rateHourly,
+                rateDaily: item.rateDaily,
+                rateWeekly: item.rateWeekly,
+                rateMonthly: item.rateMonthly,
+                currency: currency,
+              )
+            : null;
+        final unitRent = b?.totalRent ?? 0.0;
+        totalGrandEstimatedRent += (unitRent * l.quantity);
+        totalGrandExpectedDeposit += l.depositExpected;
+      }
     }
 
     pdf.addPage(
@@ -1039,26 +1151,24 @@ class PdfReceiptService {
                     final itemDuration = itemLease.expectedEndTime.difference(itemLease.startTime);
                     final itemDurationText = _formatExactDuration(itemDuration);
                     final item = itemLease.item;
-                    final itemBreakdown = item != null
-                        ? RateCalculator.getReturnRentBreakdown(
-                            startTime: itemLease.startTime,
-                            actualReturnTime: itemLease.expectedEndTime,
-                            rateHourly: item.rateHourly,
-                            rateDaily: item.rateDaily,
-                            rateWeekly: item.rateWeekly,
-                            rateMonthly: item.rateMonthly,
-                            currency: currency,
-                          )
-                        : null;
+                    final itemBreakdown = RateCalculator.getReturnRentBreakdown(
+                      startTime: itemLease.startTime,
+                      actualReturnTime: itemLease.expectedEndTime,
+                      rateHourly: itemLease.leaseItems.isNotEmpty ? itemLease.leaseItems.first.effectiveRateHourly : (item?.rateHourly ?? 0.0),
+                      rateDaily: itemLease.leaseItems.isNotEmpty ? itemLease.leaseItems.first.effectiveRateDaily : (item?.rateDaily ?? 0.0),
+                      rateWeekly: itemLease.leaseItems.isNotEmpty ? itemLease.leaseItems.first.effectiveRateWeekly : (item?.rateWeekly ?? 0.0),
+                      rateMonthly: itemLease.leaseItems.isNotEmpty ? itemLease.leaseItems.first.effectiveRateMonthly : (item?.rateMonthly ?? 0.0),
+                      currency: currency,
+                    );
 
-                    final singleUnitCost = itemBreakdown?.totalRent ?? 0.0;
+                    final singleUnitCost = itemBreakdown.totalRent;
                     final itemSubtotalCost = singleUnitCost * itemLease.quantity;
 
                     String itemDisplayRateUnit = '/ day';
-                    double itemDisplayRate = item?.rateDaily ?? 0.0;
-                    if (itemDuration.inHours < 24 && (item?.rateHourly ?? 0) > 0) {
+                    double itemDisplayRate = itemLease.leaseItems.isNotEmpty ? itemLease.leaseItems.first.effectiveRateDaily : (item?.rateDaily ?? 0.0);
+                    if (itemDuration.inHours < 24 && (itemLease.leaseItems.isNotEmpty ? itemLease.leaseItems.first.effectiveRateHourly : (item?.rateHourly ?? 0.0)) > 0) {
                       itemDisplayRateUnit = '/ hr';
-                      itemDisplayRate = item?.rateHourly ?? 0.0;
+                      itemDisplayRate = itemLease.leaseItems.isNotEmpty ? itemLease.leaseItems.first.effectiveRateHourly : (item?.rateHourly ?? 0.0);
                     }
 
                     return [
@@ -1104,44 +1214,6 @@ class PdfReceiptService {
                             padding: const pw.EdgeInsets.all(8),
                             child: pw.Text('$currency${itemSubtotalCost.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _navy), textAlign: pw.TextAlign.right),
                           ),
-                        ],
-                      ),
-                      pw.TableRow(
-                        decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F8FAFC')),
-                        children: [
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.all(8),
-                            child: pw.Column(
-                              crossAxisAlignment: pw.CrossAxisAlignment.start,
-                              children: [
-                                pw.Text(
-                                  'Step-by-Step Cost Calculation:',
-                                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _navy),
-                                ),
-                                pw.SizedBox(height: 2),
-                                if (itemBreakdown != null)
-                                  ...itemBreakdown.components.map((comp) {
-                                    final compTotal = comp.amount * itemLease.quantity;
-                                    return pw.Text(
-                                      '• ${comp.label}: ${comp.calculation} = $currency${comp.amount.toStringAsFixed(2)} / pc'
-                                      '${itemLease.quantity > 1 ? " (Total for ${itemLease.quantity} pcs = $currency${compTotal.toStringAsFixed(2)})" : ""}',
-                                      style: pw.TextStyle(fontSize: 8, color: _ink),
-                                    );
-                                  }),
-                                pw.SizedBox(height: 2),
-                                pw.Text(
-                                  itemLease.quantity > 1
-                                      ? 'Formula: ${itemLease.quantity} pcs × $currency${singleUnitCost.toStringAsFixed(2)} / pc = $currency${itemSubtotalCost.toStringAsFixed(2)}'
-                                      : 'Formula: 1 pc × $currency${singleUnitCost.toStringAsFixed(2)} = $currency${itemSubtotalCost.toStringAsFixed(2)}',
-                                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _teal),
-                                ),
-                              ],
-                            ),
-                          ),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
-                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('')),
                         ],
                       ),
                     ];

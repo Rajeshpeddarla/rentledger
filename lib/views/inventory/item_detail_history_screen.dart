@@ -9,6 +9,8 @@ import '../../data/models/lease_model.dart';
 import '../../data/repositories/inventory_unit_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
+import '../../viewmodels/inventory/inventory_cubit.dart';
+import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
 import '../../viewmodels/lease/lease_state.dart';
 import 'add_edit_item_screen.dart';
@@ -56,7 +58,14 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final storeState = context.watch<StoreCubit>().state;
     final isPro = storeState is StoreLoaded && storeState.store.isPro;
-    final item = widget.item;
+
+    // Resolve latest updated item definition from InventoryCubit
+    final invState = context.watch<InventoryCubit>().state;
+    InventoryItemModel item = widget.item;
+    if (invState is InventoryLoaded) {
+      final found = invState.allItems.where((i) => i.id == widget.item.id).firstOrNull;
+      if (found != null) item = found;
+    }
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -67,12 +76,15 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
-            onPressed: () {
-              Navigator.of(context).push(
+            onPressed: () async {
+              await Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => AddEditItemScreen(initialItem: item, isPro: isPro),
                 ),
               );
+              if (mounted) {
+                _loadUnits();
+              }
             },
           ),
         ],

@@ -127,7 +127,7 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
       appBar: AppBar(
-        title: const Text('Rental Calendar & History'),
+        title: const Text('Rental History'),
         elevation: 0,
         backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         actions: [
