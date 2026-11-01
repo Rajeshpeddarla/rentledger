@@ -553,17 +553,39 @@ class PdfReceiptService {
 
                     final Map<String, List<LeasedSubItemModel>> groupedByUnit = {};
 
-                    for (final sub in line.leasedSubItems) {
-                      final unitKey = (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty)
-                          ? sub.leaseItemUnitId!
-                          : 'unit_default';
-                      groupedByUnit.putIfAbsent(unitKey, () => []).add(sub);
+                    bool hasUnitIds = line.leasedSubItems.any((s) => s.leaseItemUnitId != null && s.leaseItemUnitId!.isNotEmpty);
+
+                    if (hasUnitIds) {
+                      for (final sub in line.leasedSubItems) {
+                        final unitKey = (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty)
+                            ? sub.leaseItemUnitId!
+                            : 'unit_${sub.id}';
+                        groupedByUnit.putIfAbsent(unitKey, () => []).add(sub);
+                      }
+                    } else {
+                      final totalComponents = line.leasedSubItems.length;
+                      final numSets = line.quantity > 0 ? line.quantity : 1;
+                      final compsPerSet = (totalComponents / numSets).ceil();
+
+                      if (compsPerSet > 0) {
+                        for (int idx = 0; idx < totalComponents; idx++) {
+                          final setIndex = (idx ~/ compsPerSet) + 1;
+                          final unitKey = 'set_$setIndex';
+                          groupedByUnit.putIfAbsent(unitKey, () => []).add(line.leasedSubItems[idx]);
+                        }
+                      } else {
+                        for (final sub in line.leasedSubItems) {
+                          groupedByUnit.putIfAbsent(sub.id, () => []).add(sub);
+                        }
+                      }
                     }
 
                     int pieceNum = 1;
                     for (final entry in groupedByUnit.entries) {
                       final subList = entry.value;
-                      final assetCode = '$skuTag-${pieceNum.toString().padLeft(4, '0')}';
+                      final LeasedSubItemModel? matchedSub = subList.where((s) => s.serialNumber != null && s.serialNumber!.startsWith(skuTag)).firstOrNull;
+                      final assetCode = matchedSub?.serialNumber ?? '$skuTag-${pieceNum.toString().padLeft(4, '0')}';
+                      pieceNum++;
 
                       pieceCards.add(
                         pw.Container(
@@ -607,10 +629,10 @@ class PdfReceiptService {
                                 spacing: 4,
                                 runSpacing: 4,
                                 children: subList.map((sub) {
-                                  final isExcluded = sub.isExcluded;
+                                  final isExcluded = sub.isExcluded || sub.conditionStatus == 'available' || sub.conditionStatus == 'excluded';
                                   final chipText = isExcluded
                                       ? '[EXCLUDED] ${sub.itemName}'
-                                      : '${sub.itemName}${sub.serialNumber != null ? " [SN: ${sub.serialNumber}]" : ""}';
+                                      : '${sub.itemName}${sub.serialNumber != null && sub.serialNumber!.isNotEmpty ? " [SN: ${sub.serialNumber}]" : ""}';
                                   return pw.Container(
                                     padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                     decoration: pw.BoxDecoration(
@@ -1756,10 +1778,10 @@ class PdfReceiptService {
                       final b = RateCalculator.getReturnRentBreakdown(
                         startTime: lease.startTime,
                         actualReturnTime: returnTime,
-                        rateHourly: line.rateHourly > 0 ? line.rateHourly : (line.item?.rateHourly ?? 0.0),
-                        rateDaily: line.rateDaily > 0 ? line.rateDaily : (line.item?.rateDaily ?? 0.0),
-                        rateWeekly: line.rateWeekly > 0 ? line.rateWeekly : (line.item?.rateWeekly ?? 0.0),
-                        rateMonthly: line.rateMonthly > 0 ? line.rateMonthly : (line.item?.rateMonthly ?? 0.0),
+                        rateHourly: line.effectiveRateHourly > 0 ? line.effectiveRateHourly : (line.item?.rateHourly ?? 0.0),
+                        rateDaily: line.effectiveRateDaily > 0 ? line.effectiveRateDaily : (line.item?.rateDaily ?? 0.0),
+                        rateWeekly: line.effectiveRateWeekly > 0 ? line.effectiveRateWeekly : (line.item?.rateWeekly ?? 0.0),
+                        rateMonthly: line.effectiveRateMonthly > 0 ? line.effectiveRateMonthly : (line.item?.rateMonthly ?? 0.0),
                       );
                       final lineSubtotal = b.totalRent * line.quantity;
 

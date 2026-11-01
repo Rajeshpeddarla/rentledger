@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/config/app_theme.dart';
 import '../../core/services/r2_storage_service.dart';
+import '../../core/utils/rate_calculator.dart';
 import '../../core/utils/uuid_generator.dart';
 import '../../core/widgets/app_image_view.dart';
 import '../../data/models/inventory_component_unit_model.dart';
@@ -17,29 +18,40 @@ import '../../viewmodels/category/category_cubit.dart';
 import '../../viewmodels/category/category_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
 import '../profile/category_list_screen.dart';
+import '../profile/edit_store_profile_screen.dart';
 import '../profile/subscription_paywall_screen.dart';
+import '../lease/in_app_camera_screen.dart';
 
 class ComponentDefinitionInput {
   final TextEditingController nameCtrl;
   final TextEditingController qtyCtrl;
+  final TextEditingController costCtrl;
   bool isRequired;
 
-  ComponentDefinitionInput({String name = '', int qty = 1, this.isRequired = true})
+  ComponentDefinitionInput({String name = '', int qty = 1, double cost = 0.0, this.isRequired = true})
       : nameCtrl = TextEditingController(text: name),
-        qtyCtrl = TextEditingController(text: '$qty');
+        qtyCtrl = TextEditingController(text: '$qty'),
+        costCtrl = TextEditingController(text: cost > 0 ? cost.toStringAsFixed(0) : '');
 
   void dispose() {
     nameCtrl.dispose();
     qtyCtrl.dispose();
+    costCtrl.dispose();
   }
 }
 
 class PhysicalSetInput {
   String? unitId;
   String assetCode;
+  int unitNumber;
   Map<String, int> componentQuantities; // componentName -> qty
 
-  PhysicalSetInput({this.unitId, required this.assetCode, required this.componentQuantities});
+  PhysicalSetInput({
+    this.unitId,
+    required this.assetCode,
+    required this.unitNumber,
+    required this.componentQuantities,
+  });
 }
 
 class AddEditItemScreen extends StatefulWidget {
@@ -85,6 +97,9 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   File? _pickedImage;
   String? _imageUrl;
   bool _isSaving = false;
+
+  // Rate calculation mode: 'auto' vs 'manual'
+  String _rateMode = 'auto';
 
   // Manual override tracking flags
   bool _isWeeklyManuallyEdited = false;
@@ -170,19 +185,50 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     super.dispose();
   }
 
-  void _autoCalculateRates(String dailyText) {
-    final dailyRate = double.tryParse(dailyText) ?? 0.0;
-    if (dailyRate <= 0) return;
+  void _recalculateRatesFromMode({double? hourly, double? daily, double? weekly, double? monthly}) {
+    if (_rateMode != 'auto') return;
 
-    if (!_isWeeklyManuallyEdited) {
-      final calculatedWeekly = dailyRate * 6.0;
-      _weeklyController.text = calculatedWeekly.toStringAsFixed(0);
-    }
+    final storeState = context.read<StoreCubit>().state;
+    final store = storeState is StoreLoaded ? storeState.store : null;
 
-    if (!_isMonthlyManuallyEdited) {
-      final calculatedMonthly = dailyRate * 22.0;
-      _monthlyController.text = calculatedMonthly.toStringAsFixed(0);
-    }
+    final workingHours = store != null ? (store.dailyWorkingHours <= 0 ? 8.0 : store.dailyWorkingHours.toDouble()) : 8.0;
+    final daysPerWeek = store?.daysPerWeek ?? 6;
+    final daysPerMonth = store?.effectiveDaysPerMonth ?? 28;
+
+    final rates = RateCalculator.suggestRates(
+      hourly: hourly,
+      daily: daily,
+      weekly: weekly,
+      monthly: monthly,
+      workingHours: workingHours,
+      daysPerWeek: daysPerWeek,
+      daysPerMonth: daysPerMonth,
+    );
+
+    if (hourly == null) _hourlyController.text = rates['hourly']!.toStringAsFixed(0);
+    if (daily == null) _dailyController.text = rates['daily']!.toStringAsFixed(0);
+    if (weekly == null) _weeklyController.text = rates['weekly']!.toStringAsFixed(0);
+    if (monthly == null) _monthlyController.text = rates['monthly']!.toStringAsFixed(0);
+  }
+
+  void _onHourlyChanged(String val) {
+    final h = double.tryParse(val);
+    _recalculateRatesFromMode(hourly: h);
+  }
+
+  void _onDailyChanged(String val) {
+    final d = double.tryParse(val);
+    _recalculateRatesFromMode(daily: d);
+  }
+
+  void _onWeeklyChanged(String val) {
+    final w = double.tryParse(val);
+    _recalculateRatesFromMode(weekly: w);
+  }
+
+  void _onMonthlyChanged(String val) {
+    final m = double.tryParse(val);
+    _recalculateRatesFromMode(monthly: m);
   }
 
   Future<void> _pickImage() async {
@@ -216,7 +262,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                 const SizedBox(height: 16),
                 ListTile(
                   leading: const Icon(Icons.camera_alt_outlined, color: AppColors.primary),
-                  title: const Text('Take Photo with Camera'),
+                  title: const Text('Take Photo with In-App Camera'),
                   onTap: () => Navigator.pop(ctx, 'camera'),
                 ),
                 ListTile(
@@ -233,21 +279,33 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
     if (sourceOption == null) return;
 
-    try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: sourceOption == 'camera' ? ImageSource.camera : ImageSource.gallery,
-        maxWidth: 800,
-        maxHeight: 800,
-        imageQuality: 70,
+    if (sourceOption == 'camera') {
+      if (!mounted) return;
+      final capturedFile = await Navigator.of(context).push<File>(
+        MaterialPageRoute(builder: (_) => const InAppCameraScreen()),
       );
-      if (picked != null) {
+      if (capturedFile != null) {
         setState(() {
-          _pickedImage = File(picked.path);
+          _pickedImage = capturedFile;
         });
       }
-    } catch (e) {
-      debugPrint('Error picking image: $e');
+    } else {
+      try {
+        final picker = ImagePicker();
+        final picked = await picker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 800,
+          maxHeight: 800,
+          imageQuality: 70,
+        );
+        if (picked != null) {
+          setState(() {
+            _pickedImage = File(picked.path);
+          });
+        }
+      } catch (e) {
+        debugPrint('Error picking gallery photo: $e');
+      }
     }
   }
 
@@ -292,6 +350,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       }
 
       for (int i = 0; i < setsCount; i++) {
+        final setNum = i + 1;
         if (i < existingUnits.length) {
           // Reuse existing physical unit asset code and saved component piece counts!
           final existing = existingUnits[i];
@@ -313,15 +372,17 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             PhysicalSetInput(
               unitId: existing.id,
               assetCode: existing.assetCode,
+              unitNumber: existing.unitNumber > 0 ? existing.unitNumber : setNum,
               componentQuantities: savedCompMap,
             ),
           );
         } else {
-          // Newly added physical set (beyond previous count)
-          final assetCode = await repo.generateAssetCode(tag, 'physical_unit');
+          // Newly added physical set (format asset code sequentially in memory)
+          final assetCode = '$tag-${setNum.toString().padLeft(4, '0')}';
           _physicalSetInputs.add(
             PhysicalSetInput(
               assetCode: assetCode,
+              unitNumber: setNum,
               componentQuantities: Map<String, int>.from(defaultCompMap),
             ),
           );
@@ -414,6 +475,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       for (final comp in _componentDefInputs) {
         final name = _capitalizeFirstLetter(comp.nameCtrl.text);
         final qty = int.tryParse(comp.qtyCtrl.text.trim()) ?? 1;
+        final cost = double.tryParse(comp.costCtrl.text.trim()) ?? 0.0;
         if (name.isNotEmpty) {
           defModels.add(SubItemDefinitionModel(
             id: UuidGenerator.generateV4(),
@@ -421,6 +483,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             storeId: store.id,
             componentName: name,
             defaultQuantity: qty,
+            replacementCost: cost,
             isRequired: comp.isRequired,
             createdAt: DateTime.now(),
             updatedAt: DateTime.now(),
@@ -446,8 +509,8 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           final defModel = defModels.where((d) => d.componentName == compName).firstOrNull;
 
           for (int piece = 1; piece <= qty; piece++) {
-            final compPrefix = compName.substring(0, compName.length >= 3 ? 3 : compName.length);
-            final compCode = await repo.generateAssetCode(compPrefix, 'component_unit');
+            final compPrefix = compName.substring(0, compName.length >= 3 ? 3 : compName.length).toUpperCase();
+            final compCode = '$compPrefix-${setInput.unitNumber.toString().padLeft(2, '0')}-${piece.toString().padLeft(2, '0')}';
 
             compUnits.add(InventoryComponentUnitModel(
               id: UuidGenerator.generateV4(),
@@ -457,6 +520,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
               storeId: store.id,
               componentName: compName,
               assetCode: compCode,
+              replacementCost: defModel?.replacementCost ?? 0.0,
               status: 'available',
               createdAt: DateTime.now(),
               updatedAt: DateTime.now(),
@@ -469,6 +533,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           inventoryItemId: itemId,
           storeId: store.id,
           assetCode: setInput.assetCode,
+          unitNumber: setInput.unitNumber,
           status: 'available',
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
@@ -1116,6 +1181,9 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   }
 
   Widget _buildComponentDefinitionsCard(bool isDark) {
+    final storeState = context.watch<StoreCubit>().state;
+    final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1155,56 +1223,170 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: _componentDefInputs.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8),
+            separatorBuilder: (context, index) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final comp = _componentDefInputs[index];
 
-              return Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: TextFormField(
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header Bar: Accessory Badge + Required Checkbox + Delete Icon
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Accessory #${index + 1}',
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () {
+                                setState(() {
+                                  comp.isRequired = !comp.isRequired;
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(6),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      comp.isRequired ? Icons.check_box : Icons.check_box_outline_blank,
+                                      size: 16,
+                                      color: comp.isRequired ? AppColors.primary : Colors.grey,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Required',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: comp.isRequired ? (isDark ? Colors.white : AppColors.lightOnSurface) : Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (index > 0)
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(4),
+                            tooltip: 'Remove Component',
+                            onPressed: () {
+                              setState(() {
+                                _componentDefInputs.removeAt(index);
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Field 1: Component Name (Full Width with Static Title)
+                    Text(
+                      'Component / Accessory Name',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                    ),
+                    const SizedBox(height: 4),
+                    TextFormField(
                       controller: comp.nameCtrl,
                       textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(
-                        hintText: 'Component Name (e.g. Battery)',
+                      decoration: InputDecoration(
+                        hintText: 'e.g. 18V Battery, Fast Charger, Lens Cap',
+                        hintStyle: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.black38),
                         isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                        filled: true,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 60,
-                    child: TextFormField(
-                      controller: comp.qtyCtrl,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-                      ),
+                    const SizedBox(height: 10),
+
+                    // Row 2: Default Quantity & Damage/Loss Fee
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 1,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Default Qty',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                              ),
+                              const SizedBox(height: 4),
+                              TextFormField(
+                                controller: comp.qtyCtrl,
+                                keyboardType: TextInputType.number,
+                                textAlign: TextAlign.center,
+                                decoration: InputDecoration(
+                                  hintText: '1',
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                  fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                                  filled: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Damage / Loss Fee ($currency)',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                              ),
+                              const SizedBox(height: 4),
+                              TextFormField(
+                                controller: comp.costCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  prefixText: '$currency ',
+                                  hintText: '1500',
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                  fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                                  filled: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Checkbox(
-                    value: comp.isRequired,
-                    activeColor: AppColors.primary,
-                    onChanged: (val) {
-                      setState(() {
-                        comp.isRequired = val ?? true;
-                      });
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                    onPressed: () {
-                      setState(() {
-                        _componentDefInputs.removeAt(index);
-                      });
-                    },
-                  ),
-                ],
+                  ],
+                ),
               );
             },
           ),
@@ -1214,6 +1396,13 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   }
 
   Widget _buildRatesAndDepositCard(bool isDark, String currency) {
+    final storeState = context.watch<StoreCubit>().state;
+    final store = storeState is StoreLoaded ? storeState.store : null;
+
+    final workingHours = store != null ? (store.dailyWorkingHours <= 0 ? 8 : store.dailyWorkingHours) : 8;
+    final daysPerWeek = store?.daysPerWeek ?? 6;
+    final daysPerMonth = store?.effectiveDaysPerMonth ?? 28;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1225,12 +1414,91 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(Icons.sell_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
-              const SizedBox(width: 6),
-              const Text('Rental Rates & Security Deposit', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              Row(
+                children: [
+                  Icon(Icons.sell_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                  const SizedBox(width: 6),
+                  const Text('Rental Rates & Security Deposit', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                ],
+              ),
             ],
           ),
+          const SizedBox(height: 10),
+
+          // Rate Calculation Mode Selector: Auto vs Manual
+          Row(
+            children: [
+              _buildRateModeChip(
+                label: 'Auto Calculate Rates',
+                mode: 'auto',
+                isDark: isDark,
+              ),
+              const SizedBox(width: 8),
+              _buildRateModeChip(
+                label: 'Manual Rates',
+                mode: 'manual',
+                isDark: isDark,
+              ),
+            ],
+          ),
+
+          // Info Banner Container explaining Store Rules
+          if (_rateMode == 'auto') ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: isDark ? AppColors.primary : const Color(0xFFA7F3D0)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Rates auto-calculate using Store Rules (${workingHours}h/shift, ${daysPerWeek}d/wk, ${daysPerMonth}d/mo).',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? AppColors.primaryLight : AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        InkWell(
+                          onTap: () {
+                            if (store != null) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => EditStoreProfileScreen(store: store),
+                                ),
+                              );
+                            }
+                          },
+                          child: Text(
+                            'Configure Shift Length & Operating Days in Store Profile & Settings ➔',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                              color: isDark ? AppColors.primaryLight : AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
 
           Row(
@@ -1243,6 +1511,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                     labelText: 'Hourly Rate ($currency)',
                     prefixText: '$currency ',
                   ),
+                  onChanged: _onHourlyChanged,
                 ),
               ),
               const SizedBox(width: 10),
@@ -1254,7 +1523,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                     labelText: 'Daily Rate ($currency) *',
                     prefixText: '$currency ',
                   ),
-                  onChanged: _autoCalculateRates,
+                  onChanged: _onDailyChanged,
                   validator: (val) => val == null || val.trim().isEmpty ? 'Daily rate required' : null,
                 ),
               ),
@@ -1272,7 +1541,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                     labelText: 'Weekly Rate ($currency)',
                     prefixText: '$currency ',
                   ),
-                  onChanged: (_) => _isWeeklyManuallyEdited = true,
+                  onChanged: _onWeeklyChanged,
                 ),
               ),
               const SizedBox(width: 10),
@@ -1284,7 +1553,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                     labelText: 'Monthly Rate ($currency)',
                     prefixText: '$currency ',
                   ),
-                  onChanged: (_) => _isMonthlyManuallyEdited = true,
+                  onChanged: _onMonthlyChanged,
                 ),
               ),
             ],
@@ -1302,6 +1571,59 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             validator: (val) => val == null || val.trim().isEmpty ? 'Security deposit required' : null,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRateModeChip({
+    required String label,
+    required String mode,
+    required bool isDark,
+  }) {
+    final bool isSelected = _rateMode == mode;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _rateMode = mode;
+          if (mode == 'auto') {
+            _onDailyChanged(_dailyController.text);
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary
+              : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: 14,
+              color: isSelected ? Colors.white : (isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected ? Colors.white : (isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

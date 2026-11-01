@@ -7,6 +7,8 @@ class RateCalculator {
   static Map<String, double> suggestRates({
     double? hourly,
     double? daily,
+    double? weekly,
+    double? monthly,
     double workingHours = 8.0,
     int daysPerWeek = 6,
     int daysPerMonth = 28,
@@ -30,6 +32,24 @@ class RateCalculator {
         'daily': daily,
         'weekly': daily * weekDays,
         'monthly': daily * monthDays,
+      };
+    } else if (weekly != null && weekly > 0) {
+      final calcDaily = double.parse((weekly / weekDays).toStringAsFixed(2));
+      final calcHourly = double.parse((calcDaily / shiftHours).toStringAsFixed(2));
+      return {
+        'hourly': calcHourly,
+        'daily': calcDaily,
+        'weekly': weekly,
+        'monthly': calcDaily * monthDays,
+      };
+    } else if (monthly != null && monthly > 0) {
+      final calcDaily = double.parse((monthly / monthDays).toStringAsFixed(2));
+      final calcHourly = double.parse((calcDaily / shiftHours).toStringAsFixed(2));
+      return {
+        'hourly': calcHourly,
+        'daily': calcDaily,
+        'weekly': calcDaily * weekDays,
+        'monthly': monthly,
       };
     }
     return {'hourly': 0, 'daily': 0, 'weekly': 0, 'monthly': 0};

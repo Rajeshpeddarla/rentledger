@@ -50,7 +50,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
     final workingHours = store != null ? (store.dailyWorkingHours <= 0 ? 8 : store.dailyWorkingHours) : 8;
     final daysPerWeek = store?.daysPerWeek ?? 6;
-    final daysPerMonth = store?.effectiveDaysPerMonth ?? (store?.enableWeekendLease == true ? 28 : 24);
+    final daysPerMonth = store?.effectiveDaysPerMonth ?? 28;
 
     final smartRates = RateCalculator.suggestRates(
       hourly: _calcHourly,

@@ -6,7 +6,7 @@ class StoreModel extends Equatable {
   final String currencySymbol;
   final String? country;
   final int dailyWorkingHours; // Configurable shift length for rate auto-calculation (default: 8)
-  final bool enableWeekendLease; // Includes Sundays/Weekends in weekly rate calculation (default: false = 6 days, true = 7 days)
+  final int daysPerWeek; // Working/rental days in 1 week (default: 6, max: 7)
   final int daysPerMonth; // Days multiplier for monthly rate calculation (default: 28)
   final String? phone;
   final String? email;
@@ -47,7 +47,7 @@ class StoreModel extends Equatable {
     this.currencySymbol = '₹',
     this.country = 'India',
     this.dailyWorkingHours = 8,
-    this.enableWeekendLease = false,
+    this.daysPerWeek = 6,
     this.daysPerMonth = 28,
     this.phone,
     this.email,
@@ -79,13 +79,11 @@ class StoreModel extends Equatable {
 
   bool get isPro => planTier == 'pro_monthly' || planTier == 'pro_annual';
 
-  int get daysPerWeek => enableWeekendLease ? 7 : 6;
-
   int get effectiveDaysPerMonth {
-    if (!enableWeekendLease && (daysPerMonth == 28 || daysPerMonth <= 0)) {
-      return 24; // 4 weeks x 6 working days
+    if (daysPerMonth <= 0) {
+      return daysPerWeek * 4;
     }
-    return daysPerMonth <= 0 ? (enableWeekendLease ? 28 : 24) : daysPerMonth;
+    return daysPerMonth;
   }
 
   bool get isTaxRegistered => taxRegistrationStatus == 'registered' && (taxRegistrationNumber != null && taxRegistrationNumber!.trim().isNotEmpty);
@@ -134,7 +132,7 @@ class StoreModel extends Equatable {
       currencySymbol: json['currency_symbol'] as String? ?? '₹',
       country: json['country'] as String? ?? 'India',
       dailyWorkingHours: hours,
-      enableWeekendLease: json['enable_weekend_lease'] as bool? ?? false,
+      daysPerWeek: (json['days_per_week'] as num?)?.toInt() ?? ((json['enable_weekend_lease'] == true) ? 7 : 6),
       daysPerMonth: (json['days_per_month'] as num?)?.toInt() ?? 28,
       phone: json['phone'] as String?,
       email: json['email'] as String?,
@@ -180,7 +178,7 @@ class StoreModel extends Equatable {
       'currency_symbol': currencySymbol,
       'country': country,
       'daily_working_hours': dailyWorkingHours,
-      'enable_weekend_lease': enableWeekendLease,
+      'days_per_week': daysPerWeek,
       'days_per_month': daysPerMonth,
       'phone': phone,
       'email': email,
@@ -210,13 +208,51 @@ class StoreModel extends Equatable {
     };
   }
 
+  /// Exact Database JSON payload matching Supabase 'stores' table schema
+  Map<String, dynamic> toDatabaseJson() {
+    return {
+      'id': id,
+      'business_name': businessName,
+      'currency_symbol': currencySymbol,
+      if (country != null) 'country': country,
+      'daily_working_hours': dailyWorkingHours,
+      'days_per_week': daysPerWeek,
+      'days_per_month': daysPerMonth,
+      if (phone != null) 'phone': phone,
+      if (email != null) 'email': email,
+      if (address != null) 'address': address,
+      if (logoR2Url != null) 'logo_r2_url': logoR2Url,
+      if (paymentQrR2Url != null) 'payment_qr_r2_url': paymentQrR2Url,
+      if (upiId != null) 'upi_id': upiId,
+      'terms_and_conditions': termsAndConditions,
+      'plan_tier': planTier,
+      if (subscriptionExpiresAt != null) 'subscription_expires_at': subscriptionExpiresAt!.toIso8601String(),
+      'is_account_secured': isAccountSecured,
+      'is_suspended': isSuspended,
+      'tax_registration_status': taxRegistrationStatus,
+      if (taxRegistrationNumber != null) 'tax_registration_number': taxRegistrationNumber,
+      'show_tax_on_receipts': showTaxOnReceipts,
+      'loyalty_expiry_days': loyaltyExpiryDays,
+      if (loyaltyExpiryLockedUntil != null) 'loyalty_expiry_locked_until': loyaltyExpiryLockedUntil!.toIso8601String(),
+      'loyalty_earn_rate_per_hour': loyaltyEarnRatePerHour,
+      'loyalty_earn_rate_per_day': loyaltyEarnRatePerDay,
+      if (ownerName != null) 'owner_name': ownerName,
+      if (ownerPhone != null) 'owner_phone': ownerPhone,
+      if (ownerEmail != null) 'owner_email': ownerEmail,
+      if (ownerGender != null) 'owner_gender': ownerGender,
+      if (ownerDob != null) 'owner_dob': ownerDob,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+    };
+  }
+
   StoreModel copyWith({
     String? id,
     String? businessName,
     String? currencySymbol,
     String? country,
     int? dailyWorkingHours,
-    bool? enableWeekendLease,
+    int? daysPerWeek,
     int? daysPerMonth,
     String? phone,
     String? email,
@@ -250,7 +286,7 @@ class StoreModel extends Equatable {
       currencySymbol: currencySymbol ?? this.currencySymbol,
       country: country ?? this.country,
       dailyWorkingHours: dailyWorkingHours ?? this.dailyWorkingHours,
-      enableWeekendLease: enableWeekendLease ?? this.enableWeekendLease,
+      daysPerWeek: daysPerWeek ?? this.daysPerWeek,
       daysPerMonth: daysPerMonth ?? this.daysPerMonth,
       phone: phone ?? this.phone,
       email: email ?? this.email,
@@ -288,7 +324,7 @@ class StoreModel extends Equatable {
         currencySymbol,
         country,
         dailyWorkingHours,
-        enableWeekendLease,
+        daysPerWeek,
         daysPerMonth,
         phone,
         email,

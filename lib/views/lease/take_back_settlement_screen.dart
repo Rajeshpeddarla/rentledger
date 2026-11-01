@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../core/config/app_theme.dart';
 import '../../core/services/pdf_receipt_service.dart';
@@ -9,13 +10,37 @@ import '../../core/utils/uuid_generator.dart';
 import '../../data/models/damage_loss_incident_model.dart';
 import '../../data/models/discount_model.dart';
 import '../../data/models/inventory_item_model.dart';
+import '../../data/models/lease_item_model.dart';
 import '../../data/models/lease_model.dart';
+import '../../data/models/inventory_item_history_model.dart';
+import '../../data/models/leased_sub_item_model.dart';
 import '../../data/models/store_model.dart';
+import '../../data/models/sub_item_model.dart';
 import '../../data/repositories/damage_loss_repository.dart';
+import '../../data/repositories/inventory_item_history_repository.dart';
+import '../../data/repositories/inventory_unit_repository.dart';
+import '../../data/repositories/sub_item_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
+import '../../viewmodels/discount/discount_cubit.dart';
+import '../../viewmodels/discount/discount_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
+import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
+
+class ItemSmartBreakdown {
+  final String name;
+  final int quantity;
+  final RentalBreakdown breakdown;
+  final double lineTotalRent;
+
+  ItemSmartBreakdown({
+    required this.name,
+    required this.quantity,
+    required this.breakdown,
+    required this.lineTotalRent,
+  });
+}
 
 class TakeBackSettlementScreen extends StatefulWidget {
   final LeaseModel lease;
@@ -32,8 +57,12 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   final String _billingMode = 'auto';
   String _returnStatus = 'available';
 
-  // Sub-items tracking for this lease item
+  // Item, Unit & Sub-items status tracking
+  final Map<String, String> _itemStatusMap = {};
+  final Map<String, String> _unitStatusMap = {};
+  List<SubItemModel> _subItems = [];
   final Map<String, String> _subItemStatusMap = {};
+  final Map<String, double> _compUnitCostMap = {};
 
   final TextEditingController _discountController = TextEditingController(text: '0');
   final TextEditingController _damageFeeController = TextEditingController(text: '0');
@@ -42,6 +71,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   DiscountModel? _appliedDiscount;
 
   RentalBreakdown? _breakdown;
+  final List<ItemSmartBreakdown> _itemBreakdowns = [];
   double _calculatedRent = 0.0;
   double _netRent = 0.0;
   double _finalBalance = 0.0;
@@ -51,18 +81,51 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   void initState() {
     super.initState();
     _actualReturnTime = DateTime.now();
-    _recalculate();
 
-    // Populate sub-item return status map
+    // Populate item & sub-item return status maps
     if (widget.lease.leaseItems.isNotEmpty) {
       for (final line in widget.lease.leaseItems) {
+        _itemStatusMap[line.id] = line.returnStatus == 'rented' ? 'available' : line.returnStatus;
         for (final sub in line.leasedSubItems) {
           if (!sub.isExcluded) {
             _subItemStatusMap[sub.id] = sub.conditionStatus == 'rented' ? 'available' : sub.conditionStatus;
           }
         }
       }
+    } else {
+      _itemStatusMap[widget.lease.itemId] = 'available';
     }
+
+    SubItemRepository().getSubItems(parentItemId: widget.lease.itemId).then((list) {
+      if (mounted && list.isNotEmpty) {
+        setState(() {
+          _subItems = list;
+          for (final s in list) {
+            if (!_subItemStatusMap.containsKey(s.id)) {
+              _subItemStatusMap[s.id] = 'available';
+            }
+          }
+        });
+      }
+    });
+
+    InventoryUnitRepository().getUnitsForProduct(widget.lease.itemId).then((units) {
+      if (mounted && units.isNotEmpty) {
+        setState(() {
+          for (final u in units) {
+            for (final c in u.components) {
+              if (c.replacementCost > 0) {
+                _compUnitCostMap[c.id] = c.replacementCost;
+                _compUnitCostMap[c.componentName] = c.replacementCost;
+              }
+            }
+          }
+          _updateAutoDamageFee();
+        });
+      }
+    });
+
+    _recalculate();
   }
 
   @override
@@ -79,31 +142,41 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
 
   void _recalculate() {
     double totalCalculated = 0.0;
+    _itemBreakdowns.clear();
 
     if (widget.lease.leaseItems.isNotEmpty) {
       for (final li in widget.lease.leaseItems) {
         final b = RateCalculator.getReturnRentBreakdown(
           startTime: widget.lease.startTime,
           actualReturnTime: _actualReturnTime,
-          rateHourly: li.rateHourly > 0 ? li.rateHourly : (li.item?.rateHourly ?? 0.0),
-          rateDaily: li.rateDaily > 0 ? li.rateDaily : (li.item?.rateDaily ?? 0.0),
-          rateWeekly: li.rateWeekly > 0 ? li.rateWeekly : (li.item?.rateWeekly ?? 0.0),
-          rateMonthly: li.rateMonthly > 0 ? li.rateMonthly : (li.item?.rateMonthly ?? 0.0),
+          rateHourly: li.effectiveRateHourly > 0 ? li.effectiveRateHourly : (li.item?.rateHourly ?? 0.0),
+          rateDaily: li.effectiveRateDaily > 0 ? li.effectiveRateDaily : (li.item?.rateDaily ?? 0.0),
+          rateWeekly: li.effectiveRateWeekly > 0 ? li.effectiveRateWeekly : (li.item?.rateWeekly ?? 0.0),
+          rateMonthly: li.effectiveRateMonthly > 0 ? li.effectiveRateMonthly : (li.item?.rateMonthly ?? 0.0),
         );
-        totalCalculated += (b.totalRent * li.quantity);
+        final lineRent = b.totalRent * li.quantity;
+        totalCalculated += lineRent;
+
+        _itemBreakdowns.add(ItemSmartBreakdown(
+          name: li.item?.name ?? 'Equipment Item',
+          quantity: li.quantity,
+          breakdown: b,
+          lineTotalRent: lineRent,
+        ));
       }
-      _breakdown = RateCalculator.getReturnRentBreakdown(
-        startTime: widget.lease.startTime,
-        actualReturnTime: _actualReturnTime,
-        rateHourly: widget.lease.leaseItems.first.rateHourly,
-        rateDaily: widget.lease.leaseItems.first.rateDaily,
-        rateWeekly: widget.lease.leaseItems.first.rateWeekly,
-        rateMonthly: widget.lease.leaseItems.first.rateMonthly,
-      );
     } else {
       InventoryItemModel? item = widget.lease.item;
+      if (item == null) {
+        try {
+          final invState = context.read<InventoryCubit>().state;
+          if (invState is InventoryLoaded) {
+            item = invState.allItems.firstWhere((i) => i.id == widget.lease.itemId);
+          }
+        } catch (_) {}
+      }
+
       if (item != null) {
-        _breakdown = RateCalculator.getReturnRentBreakdown(
+        final b = RateCalculator.getReturnRentBreakdown(
           startTime: widget.lease.startTime,
           actualReturnTime: _actualReturnTime,
           rateHourly: item.rateHourly,
@@ -111,7 +184,14 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
           rateWeekly: item.rateWeekly,
           rateMonthly: item.rateMonthly,
         );
-        totalCalculated = _breakdown!.totalRent * widget.lease.quantity;
+        totalCalculated = b.totalRent * widget.lease.quantity;
+
+        _itemBreakdowns.add(ItemSmartBreakdown(
+          name: item.name,
+          quantity: widget.lease.quantity,
+          breakdown: b,
+          lineTotalRent: totalCalculated,
+        ));
       } else {
         totalCalculated = widget.lease.calculatedRent;
       }
@@ -166,6 +246,61 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
       final store = storeState is StoreLoaded ? storeState.store : null;
       if (store == null) throw Exception('Store not found');
 
+      // Construct updated line items and sub-items with exact selected return/condition statuses
+      List<LeaseItemModel> updatedLeaseItems = [];
+
+      if (widget.lease.leaseItems.isNotEmpty) {
+        updatedLeaseItems = widget.lease.leaseItems.map((line) {
+          final st = _itemStatusMap[line.id] ?? 'available';
+          final updatedSubItems = line.leasedSubItems.map((sub) {
+            final subSt = _subItemStatusMap[sub.id] ?? 'available';
+            return sub.copyWith(conditionStatus: subSt);
+          }).toList();
+
+          return line.copyWith(
+            returnStatus: st,
+            leasedSubItems: updatedSubItems,
+          );
+        }).toList();
+      } else {
+        final st = _itemStatusMap[widget.lease.itemId] ?? 'available';
+        final updatedSubItems = _subItems.map((s) {
+          final subSt = _subItemStatusMap[s.id] ?? 'available';
+          return LeasedSubItemModel(
+            id: s.id,
+            leaseId: widget.lease.id,
+            leaseItemId: widget.lease.id,
+            subItemId: s.id,
+            itemId: widget.lease.itemId,
+            storeId: widget.lease.storeId,
+            itemName: s.name,
+            serialNumber: s.serialNumber,
+            conditionStatus: subSt,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
+        }).toList();
+
+        updatedLeaseItems.add(LeaseItemModel(
+          id: widget.lease.id,
+          leaseId: widget.lease.id,
+          storeId: widget.lease.storeId,
+          itemId: widget.lease.itemId,
+          quantity: widget.lease.quantity,
+          rateHourly: widget.lease.item?.rateHourly ?? 0,
+          rateDaily: widget.lease.item?.rateDaily ?? 0,
+          rateWeekly: widget.lease.item?.rateWeekly ?? 0,
+          rateMonthly: widget.lease.item?.rateMonthly ?? 0,
+          depositAmount: widget.lease.depositExpected,
+          lineCalculatedRent: widget.lease.calculatedRent,
+          returnStatus: st,
+          createdAt: widget.lease.createdAt,
+          updatedAt: DateTime.now(),
+          item: widget.lease.item,
+          leasedSubItems: updatedSubItems,
+        ));
+      }
+
       final updatedLease = widget.lease.copyWith(
         actualReturnTime: _actualReturnTime,
         billingUnitUsed: _billingMode,
@@ -176,6 +311,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
         finalSettlementBalance: _finalBalance,
         returnNotes: _notesController.text.trim(),
         status: 'returned',
+        leaseItems: updatedLeaseItems,
       );
 
       final settled = await context.read<LeaseCubit>().returnAndSettle(updatedLease);
@@ -183,27 +319,61 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
       // Create damage/loss incidents if any physical component is marked damaged or lost
       final damageRepo = DamageLossRepository();
 
-      for (final line in widget.lease.leaseItems) {
+      for (final line in settled.leaseItems) {
         for (final sub in line.leasedSubItems) {
           if (!sub.isExcluded) {
-            final st = _subItemStatusMap[sub.id] ?? 'available';
-            if (st == 'maintenance' || st == 'lost') {
+            final st = sub.conditionStatus;
+            if (st == 'maintenance' || st == 'lost' || st == 'damaged') {
               final incidentType = st == 'lost' ? 'lost' : 'damaged';
-              final incident = DamageLossIncidentModel(
-                id: UuidGenerator.generateV4(),
-                storeId: store.id,
-                leaseId: settled.id,
-                leaseItemId: line.id,
-                inventoryComponentUnitId: sub.inventoryComponentUnitId ?? sub.id,
-                incidentType: incidentType,
-                description: 'Reported $incidentType during return inspection of ${sub.itemName}',
-                customerCharge: incidentType == 'lost' ? 1500.0 : 500.0,
-                estimatedRepairCost: incidentType == 'lost' ? 0.0 : 400.0,
-                reportedAt: DateTime.now(),
-                createdAt: DateTime.now(),
-                updatedAt: DateTime.now(),
-              );
-              await damageRepo.createIncident(incident);
+              final cost = _resolveComponentReplacementCost(sub);
+
+              // Satisfy DB constraint: exactly one of inventory_unit_id or inventory_component_unit_id must be NOT NULL
+              final String? compUnitId = (sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty)
+                  ? sub.inventoryComponentUnitId
+                  : null;
+
+              final String? unitId = compUnitId == null
+                  ? (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty ? sub.leaseItemUnitId : null)
+                  : null;
+
+              try {
+                final incident = DamageLossIncidentModel(
+                  id: UuidGenerator.generateV4(),
+                  storeId: store.id,
+                  leaseId: settled.id,
+                  leaseItemId: line.id,
+                  inventoryUnitId: unitId,
+                  inventoryComponentUnitId: compUnitId,
+                  incidentType: incidentType,
+                  description: 'Reported $incidentType during return inspection of ${sub.itemName}',
+                  customerCharge: cost > 0 ? cost : (incidentType == 'lost' ? 1500.0 : 500.0),
+                  estimatedRepairCost: cost > 0 ? cost : (incidentType == 'lost' ? 0.0 : 400.0),
+                  reportedAt: DateTime.now(),
+                  createdAt: DateTime.now(),
+                  updatedAt: DateTime.now(),
+                );
+                await damageRepo.createIncident(incident);
+                debugPrint('--> [SETTLE INCIDENT SUCCESS] Incident logged for ${sub.itemName}');
+
+                // Log audit history entry
+                final historyRepo = InventoryItemHistoryRepository();
+                await historyRepo.logHistory(InventoryItemHistoryModel(
+                  id: UuidGenerator.generateV4(),
+                  storeId: store.id,
+                  inventoryItemId: line.itemId,
+                  inventoryUnitId: sub.leaseItemUnitId,
+                  inventoryComponentUnitId: sub.inventoryComponentUnitId,
+                  leaseId: settled.id,
+                  eventType: incidentType, // 'damaged' or 'lost'
+                  previousStatus: 'rented',
+                  newStatus: st == 'lost' ? 'lost' : 'maintenance',
+                  notes: 'Reported $incidentType during return inspection of ${sub.itemName}',
+                  costIncurred: cost,
+                  createdAt: DateTime.now(),
+                ));
+              } catch (incErr) {
+                debugPrint('--> [SETTLE INCIDENT WARNING] DamageLossIncident creation warning: $incErr');
+              }
             }
           }
         }
@@ -377,7 +547,67 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
     final store = storeState is StoreLoaded ? storeState.store : null;
     final currency = store?.currencySymbol ?? '₹';
 
-    final displayName = _getLeaseItemDisplayName();
+    final duration = _actualReturnTime.difference(widget.lease.startTime);
+    final totalMinutes = duration.inMinutes < 1 ? 1 : duration.inMinutes;
+
+    final days = totalMinutes ~/ (24 * 60);
+    final minutesAfterDays = totalMinutes % (24 * 60);
+    final hours = minutesAfterDays ~/ 60;
+    final minutes = minutesAfterDays % 60;
+
+    String fallbackDurationText = '';
+    if (days > 0) fallbackDurationText += '$days Day${days > 1 ? 's' : ''}, ';
+    if (hours > 0) fallbackDurationText += '$hours Hr${hours > 1 ? 's' : ''}, ';
+    fallbackDurationText += '$minutes Min${minutes > 1 ? 's' : ''}';
+
+    final durationDisplay = _breakdown?.durationText ?? fallbackDurationText;
+
+    // Calculate damaged & lost components repair/replacement costs
+    double totalEstDamageCost = 0.0;
+    final List<Map<String, dynamic>> damagedCompBreakdown = [];
+
+    final hasLineItems = widget.lease.leaseItems.isNotEmpty;
+    final itemsCount = hasLineItems ? widget.lease.leaseItems.length : 1;
+
+    for (int i = 0; i < itemsCount; i++) {
+      final lineItem = hasLineItems ? widget.lease.leaseItems[i] : null;
+      final key = lineItem?.id ?? widget.lease.itemId;
+      final mainSt = _itemStatusMap[key] ?? 'available';
+
+      final List<dynamic> subItemsList = lineItem != null && lineItem.leasedSubItems.isNotEmpty
+          ? lineItem.leasedSubItems
+          : (i == 0 ? _subItems : []);
+
+      for (final sub in subItemsList) {
+        final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+        final isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
+        if (!isExcluded) {
+          final subSt = _subItemStatusMap[subId] ?? 'available';
+          if (subSt == 'maintenance' || subSt == 'lost') {
+            final double repCost = _resolveComponentReplacementCost(sub);
+            final cost = repCost > 0 ? repCost : (subSt == 'lost' ? 1500.0 : 500.0);
+            totalEstDamageCost += cost;
+            damagedCompBreakdown.add({
+              'name': sub is LeasedSubItemModel ? sub.itemName : (sub as SubItemModel).name,
+              'serial': sub is LeasedSubItemModel ? sub.serialNumber : (sub as SubItemModel).serialNumber,
+              'status': subSt == 'lost' ? 'LOST' : 'DAMAGED',
+              'cost': cost,
+            });
+          }
+        }
+      }
+
+      if (subItemsList.isEmpty && (mainSt == 'maintenance' || mainSt == 'lost')) {
+        final cost = mainSt == 'lost' ? 1500.0 : 500.0;
+        totalEstDamageCost += cost;
+        damagedCompBreakdown.add({
+          'name': lineItem?.item?.name ?? _getLeaseItemDisplayName(),
+          'serial': null,
+          'status': mainSt == 'lost' ? 'LOST' : 'DAMAGED',
+          'cost': cost,
+        });
+      }
+    }
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -391,7 +621,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Asset Summary Tile
+            // 1. Rental Duration & Timeline Card
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -399,218 +629,91 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.timer_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                          const SizedBox(width: 6),
+                          const Text('Rental Duration & Timeline', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          durationDisplay,
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   Container(
-                    width: 48,
-                    height: 48,
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceContainer,
+                      color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.handyman, color: AppColors.primary, size: 26),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          displayName,
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
-                          overflow: TextOverflow.ellipsis,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Handover Date', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                            Text(DateFormat('dd MMM, hh:mm a').format(widget.lease.startTime), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Client: ${widget.lease.customer?.name ?? "Customer"} (${widget.lease.customer?.phone ?? "-"}) • ${widget.lease.totalPieces} Pcs',
-                          style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                        InkWell(
+                          onTap: _selectReturnDateTime,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.edit, size: 10, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                                    const SizedBox(width: 3),
+                                    Text('Actual Return', style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                                  ],
+                                ),
+                                Text(DateFormat('dd MMM, hh:mm a').format(_actualReturnTime), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Recorded Duration: $durationDisplay',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                  ),
                 ],
               ),
             ),
 
             const SizedBox(height: 14),
 
-            // Condition Inspection Card
+            // 2. Master Quick Action Control
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.darkCard : Colors.white,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.fact_check_outlined, size: 18, color: AppColors.primary),
-                          SizedBox(width: 6),
-                          Text('Condition Inspection', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      Text('Photos: ${widget.lease.beforePhotoUrls.length}', style: const TextStyle(fontSize: 11, color: AppColors.secondary)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Master Quick Action: Select All Arrived in Good Condition
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _returnStatus = 'available';
-                          for (final key in _subItemStatusMap.keys) {
-                            _subItemStatusMap[key] = 'available';
-                          }
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('All non-excluded components marked as Good Condition / Available!'),
-                            backgroundColor: AppColors.primary,
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.done_all, size: 16),
-                      label: const Text('Select All Arrived in Good Condition', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 8)),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Per-Sub-Item Condition Status Dropdowns
-                  if (widget.lease.leaseItems.isNotEmpty) ...[
-                    ...widget.lease.leaseItems.map((line) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(line.item?.name ?? 'Equipment', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                          const SizedBox(height: 6),
-
-                          ...line.leasedSubItems.map((sub) {
-                            if (sub.isExcluded) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Text('• ${sub.itemName} [EXCLUDED FROM RENTAL - NOT EXPECTED]', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                              );
-                            }
-
-                            final currentSt = _subItemStatusMap[sub.id] ?? 'available';
-
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      '• ${sub.itemName}${sub.serialNumber != null ? " [${sub.serialNumber}]" : ""}',
-                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                                    ),
-                                  ),
-                                  DropdownButton<String>(
-                                    value: currentSt,
-                                    isDense: true,
-                                    underline: const SizedBox.shrink(),
-                                    items: const [
-                                      DropdownMenuItem(value: 'available', child: Text('Ready', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primaryLight))),
-                                      DropdownMenuItem(value: 'awaiting_inspection', child: Text('Inspection', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber))),
-                                      DropdownMenuItem(value: 'maintenance', child: Text('Damaged', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amber))),
-                                      DropdownMenuItem(value: 'lost', child: Text('Lost', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed))),
-                                    ],
-                                    onChanged: (val) {
-                                      if (val != null) {
-                                        setState(() {
-                                          _subItemStatusMap[sub.id] = val;
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                        ],
-                      );
-                    }),
-                  ],
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // Financial Summary & Calculations
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Rental Charge Subtotal', style: TextStyle(fontSize: 12)),
-                      Text('$currency${_calculatedRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _discountController,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(labelText: 'Discount ($currency)', prefixText: '$currency '),
-                          onChanged: (_) => setState(_recalculate),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _damageFeeController,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(labelText: 'Damage Fee ($currency)', prefixText: '$currency '),
-                          onChanged: (_) => setState(_recalculate),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Final Net Charge', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      Text('$currency${_netRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // Final Settlement Reconciliation Card
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _finalBalance > 0
-                    ? (isDark ? const Color(0xFF3B2E15) : const Color(0xFFFFFBEB))
-                    : (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5)),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _finalBalance > 0 ? AppColors.tertiaryAmber : AppColors.primaryLight, width: 1.5),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -619,27 +722,533 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _finalBalance > 0 ? 'Client Owes Store (Additional Collect)' : 'Store Refund to Client',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _finalBalance > 0 ? Colors.amber.shade900 : AppColors.primaryLight),
-                      ),
-                      if (store != null && _finalBalance > 0)
-                        IconButton(
-                          icon: const Icon(Icons.qr_code, color: AppColors.primary),
-                          onPressed: () => _showPaymentQrModal(store),
+                        'Quick Inspection Actions',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
                         ),
+                      ),
+                      Text(
+                        '(Mark condition for all equipment)',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '$currency${_finalBalance.abs().toStringAsFixed(2)}',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _finalBalance > 0 ? AppColors.errorRed : AppColors.primaryLight),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              for (final k in _itemStatusMap.keys) {
+                                _itemStatusMap[k] = 'available';
+                              }
+                              for (final k in _unitStatusMap.keys) {
+                                _unitStatusMap[k] = 'available';
+                              }
+                              for (final k in _subItemStatusMap.keys) {
+                                _subItemStatusMap[k] = 'available';
+                              }
+                              _returnStatus = 'available';
+                              _updateAutoDamageFee();
+                            });
+                          },
+                          icon: const Icon(Icons.check_circle_outline, size: 14),
+                          label: const Text(
+                            'Ready / OK',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              for (final k in _itemStatusMap.keys) {
+                                _itemStatusMap[k] = 'maintenance';
+                              }
+                              for (final k in _unitStatusMap.keys) {
+                                _unitStatusMap[k] = 'maintenance';
+                              }
+                              for (final k in _subItemStatusMap.keys) {
+                                _subItemStatusMap[k] = 'maintenance';
+                              }
+                              _returnStatus = 'maintenance';
+                              _updateAutoDamageFee();
+                            });
+                          },
+                          icon: const Icon(Icons.warning_amber_rounded, size: 14, color: AppColors.tertiaryAmber),
+                          label: const Text(
+                            'Damaged',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                            side: const BorderSide(color: AppColors.tertiaryAmber),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              for (final k in _itemStatusMap.keys) {
+                                _itemStatusMap[k] = 'lost';
+                              }
+                              for (final k in _unitStatusMap.keys) {
+                                _unitStatusMap[k] = 'lost';
+                              }
+                              for (final k in _subItemStatusMap.keys) {
+                                _subItemStatusMap[k] = 'lost';
+                              }
+                              _returnStatus = 'lost';
+                              _updateAutoDamageFee();
+                            });
+                          },
+                          icon: const Icon(Icons.highlight_off, size: 14, color: AppColors.errorRed),
+                          label: const Text(
+                            'Lost',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                            side: const BorderSide(color: AppColors.errorRed),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
 
+            const SizedBox(height: 14),
+
+            // 3. Equipment Condition Inspection Cards (Single Spot per Item)
+            Text(
+              'Equipment Condition Inspection',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            ..._buildIndividualItemCards(context, isDark),
+
+            const SizedBox(height: 6),
+
+            // 4. Inspection Proof Photos taken when leasing
+            if (widget.lease.beforePhotoUrls.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.photo_library_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                            const SizedBox(width: 6),
+                            const Text('Photos Taken When Leasing', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        Text('${widget.lease.beforePhotoUrls.length} Photos',
+                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 76,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: widget.lease.beforePhotoUrls.length,
+                        separatorBuilder: (context, index) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) => _buildConditionPhotoThumbnail(
+                          context,
+                          widget.lease.beforePhotoUrls[index],
+                          index,
+                          isDark,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // 5. Prior Upfront Payments & Deposit Credit Card
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.account_balance_wallet_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                      const SizedBox(width: 6),
+                      const Text('Prior Upfront Payments & Credits', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Security deposit paid upfront', style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      Text('$currency${widget.lease.depositPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Advance rent paid upfront', style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      Text('$currency${widget.lease.advanceRentPaid.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Total Upfront Credit Available', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                      Text(
+                        '$currency${(widget.lease.depositPaid + widget.lease.advanceRentPaid).toStringAsFixed(2)}',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 6. Smart Ledger Calculation Breakdown Card
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.calculate_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                      const SizedBox(width: 6),
+                      const Text('Smart Ledger Breakdown', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Display Itemized Component Breakdown List for ALL items in order
+                  if (_itemBreakdowns.isNotEmpty) ...[
+                    ..._itemBreakdowns.map((itemBk) {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${itemBk.quantity}x ${itemBk.name}',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
+                                ),
+                                Text(
+                                  '$currency${itemBk.lineTotalRent.toStringAsFixed(2)}',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            ...itemBk.breakdown.components.map((comp) {
+                              final compSubtotal = comp.amount * itemBk.quantity;
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '• ${comp.label}: ${comp.calculation}',
+                                        style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                      ),
+                                    ),
+                                    Text(
+                                      itemBk.quantity > 1
+                                          ? '$currency${comp.amount.toStringAsFixed(2)} / pc ($currency${compSubtotal.toStringAsFixed(2)})'
+                                          : '$currency${comp.amount.toStringAsFixed(2)}',
+                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                            if (itemBk.quantity > 1) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Formula: ${itemBk.quantity} pcs × $currency${itemBk.breakdown.totalRent.toStringAsFixed(2)} / pc = $currency${itemBk.lineTotalRent.toStringAsFixed(2)}',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 4),
+                    Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    const SizedBox(height: 6),
+                  ],
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Gross Rent Subtotal', style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      Text('$currency${_calculatedRent.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Coupon / Discount row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _discountController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Discount / Coupon ($currency)',
+                            prefixText: '$currency ',
+                          ),
+                          onChanged: (_) => setState(_recalculate),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton(
+                        icon: const Icon(Icons.local_offer_outlined, color: AppColors.primary),
+                        tooltip: 'Apply Coupon',
+                        onPressed: () => _openDiscountPickerModal(context),
+                      ),
+                    ],
+                  ),
+                  if (_appliedDiscount != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Applied Coupon: ${_appliedDiscount!.code} (${_appliedDiscount!.discountText})',
+                        style: const TextStyle(fontSize: 11, color: AppColors.primaryLight, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+
+                  const SizedBox(height: 10),
+
+                  // Itemized Damage / Loss Replacement Cost Summary Box
+                  if (damagedCompBreakdown.isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Damaged / Lost Items Estimated Cost:',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+                              ),
+                              Text(
+                                '$currency${totalEstDamageCost.toStringAsFixed(2)}',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          ...damagedCompBreakdown.map((item) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 3),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '• ${item['name']}${item['serial'] != null && (item['serial'] as String).isNotEmpty ? " (${item['serial']})" : ""} [${item['status']}]',
+                                      style: const TextStyle(fontSize: 10, color: AppColors.errorRed, fontWeight: FontWeight.bold),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(
+                                    '$currency${(item['cost'] as double).toStringAsFixed(2)}',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  TextFormField(
+                    controller: _damageFeeController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Damage / Inspection / Overdue Fee ($currency)',
+                      prefixText: '$currency ',
+                      helperText: 'Added to final rental charges upon inspection',
+                    ),
+                    onChanged: (_) => setState(_recalculate),
+                  ),
+
+                  const SizedBox(height: 12),
+                  Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  const SizedBox(height: 8),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Final Net Rental Charge', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface)),
+                      Text('$currency${_netRent.toStringAsFixed(2)}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 7. Final Settlement Reconciliation Card
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _finalBalance > 0
+                    ? (isDark ? const Color(0xFF3B2E15) : const Color(0xFFFFFBEB))
+                    : (_finalBalance < 0
+                        ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
+                        : (isDark ? AppColors.darkCard : Colors.white)),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _finalBalance > 0
+                      ? AppColors.tertiaryAmber
+                      : (_finalBalance < 0 ? AppColors.primaryLight : (isDark ? AppColors.darkBorder : AppColors.lightBorder)),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _finalBalance > 0
+                            ? 'Client Owes Store (Additional Collect)'
+                            : (_finalBalance < 0 ? 'Store Refund to Client' : 'Fully Settled (Net Zero Balance)'),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: _finalBalance > 0
+                              ? Colors.amber.shade900
+                              : (_finalBalance < 0 ? AppColors.primaryLight : (isDark ? Colors.white : AppColors.slateNavy)),
+                        ),
+                      ),
+                      if (store != null && _finalBalance > 0)
+                        IconButton(
+                          icon: const Icon(Icons.qr_code, color: AppColors.primary),
+                          tooltip: 'Show UPI QR Code',
+                          onPressed: () => _showPaymentQrModal(store),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '$currency${_finalBalance.abs().toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: _finalBalance > 0
+                          ? AppColors.errorRed
+                          : (_finalBalance < 0 ? AppColors.primaryLight : (isDark ? Colors.white : AppColors.slateNavy)),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _finalBalance > 0
+                        ? 'Collect $currency${_finalBalance.toStringAsFixed(2)} via Cash / UPI QR Code.'
+                        : (_finalBalance < 0
+                            ? 'Refund $currency${_finalBalance.abs().toStringAsFixed(2)} security deposit balance to client.'
+                            : 'Security deposit matches rental charges exactly.'),
+                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 8. Return Notes Input
+            TextFormField(
+              controller: _notesController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Return Notes (Optional)',
+                hintText: 'Accessories verified, minor scratches recorded...',
+              ),
+            ),
+
             const SizedBox(height: 24),
 
+            // 9. Primary Settlement Button
             ElevatedButton.icon(
               onPressed: _isSettling ? null : _handleSettlement,
               icon: const Icon(Icons.check_circle_outline, size: 20),
@@ -654,6 +1263,710 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  double _resolveComponentReplacementCost(dynamic sub) {
+    double repCost = sub is LeasedSubItemModel ? sub.replacementCost : 0.0;
+
+    if (repCost <= 0) {
+      if (sub is LeasedSubItemModel && sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty) {
+        repCost = _compUnitCostMap[sub.inventoryComponentUnitId!] ?? 0.0;
+      }
+      if (repCost <= 0) {
+        final name = sub is LeasedSubItemModel ? sub.itemName : (sub as SubItemModel).name;
+        repCost = _compUnitCostMap[name] ?? 0.0;
+      }
+    }
+
+    return repCost;
+  }
+
+  void _updateAutoDamageFee() {
+    double totalEstDamageCost = 0.0;
+    final hasLineItems = widget.lease.leaseItems.isNotEmpty;
+    final itemsCount = hasLineItems ? widget.lease.leaseItems.length : 1;
+
+    for (int i = 0; i < itemsCount; i++) {
+      final lineItem = hasLineItems ? widget.lease.leaseItems[i] : null;
+      final key = lineItem?.id ?? widget.lease.itemId;
+      final mainSt = _itemStatusMap[key] ?? 'available';
+
+      final List<dynamic> subItemsList = lineItem != null && lineItem.leasedSubItems.isNotEmpty
+          ? lineItem.leasedSubItems
+          : (i == 0 ? _subItems : []);
+
+      for (final sub in subItemsList) {
+        final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+        final isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
+        if (!isExcluded) {
+          final subSt = _subItemStatusMap[subId] ?? 'available';
+          if (subSt == 'maintenance' || subSt == 'lost') {
+            final double repCost = _resolveComponentReplacementCost(sub);
+            final cost = repCost > 0 ? repCost : (subSt == 'lost' ? 1500.0 : 500.0);
+            totalEstDamageCost += cost;
+          }
+        }
+      }
+
+      if (subItemsList.isEmpty && (mainSt == 'maintenance' || mainSt == 'lost')) {
+        final cost = mainSt == 'lost' ? 1500.0 : 500.0;
+        totalEstDamageCost += cost;
+      }
+    }
+
+    if (totalEstDamageCost > 0) {
+      _damageFeeController.text = totalEstDamageCost.toStringAsFixed(0);
+    } else {
+      _damageFeeController.text = '0';
+    }
+    _recalculate();
+  }
+
+  void _syncParentItemStatusFromSubItems(String itemKey, List<dynamic> subItemsList) {
+    if (subItemsList.isEmpty) return;
+
+    final nonExcludedSubs = subItemsList.where((sub) {
+      return !(sub is LeasedSubItemModel && sub.isExcluded);
+    }).toList();
+
+    if (nonExcludedSubs.isEmpty) return;
+
+    // Get the status of the first non-excluded sub-item
+    final firstSub = nonExcludedSubs.first;
+    final firstSubId = firstSub is LeasedSubItemModel ? firstSub.id : (firstSub as SubItemModel).id;
+    final firstSt = _subItemStatusMap[firstSubId] ?? 'available';
+
+    // Check if ALL non-excluded sub-items have the exact same status
+    bool allSame = true;
+    for (final sub in nonExcludedSubs) {
+      final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+      final st = _subItemStatusMap[subId] ?? 'available';
+      if (st != firstSt) {
+        allSame = false;
+        break;
+      }
+    }
+
+    // Only auto-update main item status if ALL sub-components share the exact same status!
+    // If sub-component statuses are mixed, preserve manual override on main item condition.
+    if (allSame) {
+      _itemStatusMap[itemKey] = firstSt;
+    }
+    _updateAutoDamageFee();
+  }
+
+  void _propagateParentStatusToSubItems(String newStatus, List<dynamic> subItemsList) {
+    for (final sub in subItemsList) {
+      final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+      final isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
+      if (!isExcluded) {
+        _subItemStatusMap[subId] = newStatus;
+      }
+    }
+    _updateAutoDamageFee();
+  }
+
+  List<Widget> _buildIndividualItemCards(BuildContext context, bool isDark) {
+    final List<Widget> cards = [];
+
+    final hasLineItems = widget.lease.leaseItems.isNotEmpty;
+    final itemsCount = hasLineItems ? widget.lease.leaseItems.length : 1;
+
+    for (int i = 0; i < itemsCount; i++) {
+      final lineItem = hasLineItems ? widget.lease.leaseItems[i] : null;
+      final key = lineItem?.id ?? widget.lease.itemId;
+      final itemName = lineItem?.item?.name ?? (hasLineItems ? 'Equipment Item #${i + 1}' : _getLeaseItemDisplayName());
+      final qty = lineItem?.quantity ?? widget.lease.quantity;
+      final sku = lineItem?.item?.displaySku ?? widget.lease.item?.displaySku ?? '-';
+
+      final currentItemStatus = _itemStatusMap[key] ?? 'available';
+
+      // Get sub-items / components for this line item
+      final List<dynamic> subItemsList = lineItem != null && lineItem.leasedSubItems.isNotEmpty
+          ? lineItem.leasedSubItems
+          : (i == 0 ? _subItems : []);
+
+      bool isCardDamagedOrLost = currentItemStatus == 'maintenance' ||
+          currentItemStatus == 'lost' ||
+          currentItemStatus == 'awaiting_inspection';
+
+      for (final sub in subItemsList) {
+        final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+        final isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
+        if (!isExcluded) {
+          final subSt = _subItemStatusMap[subId] ?? 'available';
+          if (subSt == 'maintenance' || subSt == 'lost' || subSt == 'awaiting_inspection') {
+            isCardDamagedOrLost = true;
+            break;
+          }
+        }
+      }
+
+      final Color cardBgColor = isCardDamagedOrLost
+          ? (isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2))
+          : (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5));
+
+      final Color cardBorderColor = isCardDamagedOrLost
+          ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA))
+          : (isDark ? AppColors.primary : const Color(0xFFA7F3D0));
+
+      final String statusLabel = isCardDamagedOrLost ? 'DAMAGED / EXCEPTION' : 'RETURNED - GOOD CONDITION';
+      final Color badgeBg = isCardDamagedOrLost
+          ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFFDAD6))
+          : (isDark ? AppColors.darkSurfaceLow : const Color(0xFFD1FAE5));
+      final Color badgeTextColor = isCardDamagedOrLost ? AppColors.errorRed : AppColors.primary;
+
+      // Group sub-items into physical sets / units
+      final Map<String, List<dynamic>> groupedUnitsMap = {};
+
+      bool hasUnitKeys = subItemsList.any((s) => s is LeasedSubItemModel && s.leaseItemUnitId != null && s.leaseItemUnitId!.isNotEmpty);
+
+      if (hasUnitKeys) {
+        for (final sub in subItemsList) {
+          final unitKey = (sub is LeasedSubItemModel && sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty)
+              ? sub.leaseItemUnitId!
+              : 'unit_${sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id}';
+          groupedUnitsMap.putIfAbsent(unitKey, () => []).add(sub);
+        }
+      } else {
+        final totalComps = subItemsList.length;
+        final numSets = qty > 0 ? qty : 1;
+        final compsPerSet = totalComps > 0 ? (totalComps / numSets).ceil() : 1;
+
+        if (compsPerSet > 0) {
+          for (int idx = 0; idx < totalComps; idx++) {
+            final setIndex = (idx ~/ compsPerSet) + 1;
+            final unitKey = 'set_$setIndex';
+            groupedUnitsMap.putIfAbsent(unitKey, () => []).add(subItemsList[idx]);
+          }
+        } else {
+          for (final sub in subItemsList) {
+            final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+            groupedUnitsMap.putIfAbsent(subId, () => []).add(sub);
+          }
+        }
+      }
+
+      cards.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cardBgColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: cardBorderColor, width: 1.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Main Item Header Row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$qty x $itemName',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'SKU: $sku • $qty ${qty > 1 ? "physical sets" : "physical set"}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: badgeBg,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: badgeTextColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              Text(
+                'Overall Item Condition:',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Choice Options for Main Item Condition
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _buildConditionChoiceChip(
+                    label: 'Available (OK)',
+                    value: 'available',
+                    selectedGroupValue: currentItemStatus,
+                    onSelected: () {
+                      setState(() {
+                        _itemStatusMap[key] = 'available';
+                        _propagateParentStatusToSubItems('available', subItemsList);
+                      });
+                    },
+                    isDark: isDark,
+                    activeColor: AppColors.primary,
+                  ),
+                  _buildConditionChoiceChip(
+                    label: 'Damaged',
+                    value: 'maintenance',
+                    selectedGroupValue: currentItemStatus,
+                    onSelected: () {
+                      setState(() {
+                        _itemStatusMap[key] = 'maintenance';
+                        _propagateParentStatusToSubItems('maintenance', subItemsList);
+                      });
+                    },
+                    isDark: isDark,
+                    activeColor: AppColors.errorRed,
+                  ),
+                  _buildConditionChoiceChip(
+                    label: 'Lost',
+                    value: 'lost',
+                    selectedGroupValue: currentItemStatus,
+                    onSelected: () {
+                      setState(() {
+                        _itemStatusMap[key] = 'lost';
+                        _propagateParentStatusToSubItems('lost', subItemsList);
+                      });
+                    },
+                    isDark: isDark,
+                    activeColor: AppColors.errorRed,
+                  ),
+                ],
+              ),
+
+              // Physical Units Grouped Cards
+              if (subItemsList.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                const SizedBox(height: 8),
+
+                ...groupedUnitsMap.entries.toList().asMap().entries.map((mapEntry) {
+                  final setIndex = mapEntry.key + 1;
+                  final unitSubs = mapEntry.value.value;
+
+                  // Determine Unit-level condition: only show 'available', 'maintenance', or 'lost' if ALL unit sub-items share the exact same status!
+                  final unitKeyId = mapEntry.value.key;
+                  String unitStatus = _unitStatusMap[unitKeyId] ?? 'available';
+
+                  if (unitSubs.isNotEmpty) {
+                    final firstUnitSub = unitSubs.first;
+                    final firstUnitSubId = firstUnitSub is LeasedSubItemModel ? firstUnitSub.id : (firstUnitSub as SubItemModel).id;
+                    final firstUnitSt = _subItemStatusMap[firstUnitSubId] ?? 'available';
+
+                    bool allUnitSubsSame = true;
+                    for (final s in unitSubs) {
+                      final subId = s is LeasedSubItemModel ? s.id : (s as SubItemModel).id;
+                      final st = _subItemStatusMap[subId] ?? 'available';
+                      if (st != firstUnitSt) {
+                        allUnitSubsSame = false;
+                        break;
+                      }
+                    }
+
+                    if (allUnitSubsSame) {
+                      unitStatus = firstUnitSt;
+                      _unitStatusMap[unitKeyId] = firstUnitSt;
+                    }
+                  }
+
+                  final firstSerialObj = unitSubs.where((s) => (s is LeasedSubItemModel ? s.serialNumber : (s as SubItemModel).serialNumber) != null).firstOrNull;
+                  final String? unitSerial = firstSerialObj != null
+                      ? (firstSerialObj is LeasedSubItemModel ? firstSerialObj.serialNumber : (firstSerialObj as SubItemModel).serialNumber)
+                      : null;
+
+                  final unitTitle = '📦 Physical Set #$setIndex ${unitSerial != null && unitSerial.isNotEmpty ? "($unitSerial)" : ""}';
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkCard : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Unit Header with Per-Unit Status Chips
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                unitTitle,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildConditionChoiceChip(
+                                  label: 'OK',
+                                  value: 'available',
+                                  selectedGroupValue: unitStatus,
+                                  onSelected: () {
+                                    setState(() {
+                                      _unitStatusMap[unitKeyId] = 'available';
+                                      _propagateParentStatusToSubItems('available', unitSubs);
+                                      _syncParentItemStatusFromSubItems(key, subItemsList);
+                                    });
+                                  },
+                                  isDark: isDark,
+                                  activeColor: AppColors.primary,
+                                  isCompact: true,
+                                ),
+                                const SizedBox(width: 4),
+                                _buildConditionChoiceChip(
+                                  label: 'Damaged',
+                                  value: 'maintenance',
+                                  selectedGroupValue: unitStatus,
+                                  onSelected: () {
+                                    setState(() {
+                                      _unitStatusMap[unitKeyId] = 'maintenance';
+                                      _propagateParentStatusToSubItems('maintenance', unitSubs);
+                                      _syncParentItemStatusFromSubItems(key, subItemsList);
+                                    });
+                                  },
+                                  isDark: isDark,
+                                  activeColor: AppColors.errorRed,
+                                  isCompact: true,
+                                ),
+                                const SizedBox(width: 4),
+                                _buildConditionChoiceChip(
+                                  label: 'Lost',
+                                  value: 'lost',
+                                  selectedGroupValue: unitStatus,
+                                  onSelected: () {
+                                    setState(() {
+                                      _unitStatusMap[unitKeyId] = 'lost';
+                                      _propagateParentStatusToSubItems('lost', unitSubs);
+                                      _syncParentItemStatusFromSubItems(key, subItemsList);
+                                    });
+                                  },
+                                  isDark: isDark,
+                                  activeColor: AppColors.errorRed,
+                                  isCompact: true,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Sub-Items under this Unit
+                        ...unitSubs.map((sub) {
+                          final String subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+                          final String subName = sub is LeasedSubItemModel ? sub.itemName : (sub as SubItemModel).name;
+                          final String? subSerial = sub is LeasedSubItemModel ? sub.serialNumber : (sub as SubItemModel).serialNumber;
+                          final bool isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
+
+                          if (isExcluded) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 6),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: isDark ? AppColors.darkCard : Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '• $subName [EXCLUDED FROM RENTAL - NOT EXPECTED]',
+                                style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold),
+                              ),
+                            );
+                          }
+
+                          final String currentSubSt = _subItemStatusMap[subId] ?? 'available';
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '• $subName${subSerial != null && subSerial.isNotEmpty ? " (SN: $subSerial)" : ""}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildConditionChoiceChip(
+                                      label: 'OK',
+                                      value: 'available',
+                                      selectedGroupValue: currentSubSt,
+                                      onSelected: () {
+                                        setState(() {
+                                          _subItemStatusMap[subId] = 'available';
+                                          _syncParentItemStatusFromSubItems(key, subItemsList);
+                                        });
+                                      },
+                                      isDark: isDark,
+                                      activeColor: AppColors.primary,
+                                      isCompact: true,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    _buildConditionChoiceChip(
+                                      label: 'Damaged',
+                                      value: 'maintenance',
+                                      selectedGroupValue: currentSubSt,
+                                      onSelected: () {
+                                        setState(() {
+                                          _subItemStatusMap[subId] = 'maintenance';
+                                          _syncParentItemStatusFromSubItems(key, subItemsList);
+                                        });
+                                      },
+                                      isDark: isDark,
+                                      activeColor: AppColors.errorRed,
+                                      isCompact: true,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    _buildConditionChoiceChip(
+                                      label: 'Lost',
+                                      value: 'lost',
+                                      selectedGroupValue: currentSubSt,
+                                      onSelected: () {
+                                        setState(() {
+                                          _subItemStatusMap[subId] = 'lost';
+                                          _syncParentItemStatusFromSubItems(key, subItemsList);
+                                        });
+                                      },
+                                      isDark: isDark,
+                                      activeColor: AppColors.errorRed,
+                                      isCompact: true,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    return cards;
+  }
+
+  Widget _buildConditionChoiceChip({
+    required String label,
+    required String value,
+    required String selectedGroupValue,
+    required VoidCallback onSelected,
+    required bool isDark,
+    required Color activeColor,
+    bool isCompact = false,
+  }) {
+    final bool isSelected = selectedGroupValue == value;
+
+    return InkWell(
+      onTap: onSelected,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: isCompact ? 8 : 10,
+          vertical: isCompact ? 4 : 6,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor
+              : (isDark ? AppColors.darkCard : Colors.white),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: isCompact ? 12 : 14,
+              color: isSelected ? Colors.white : (isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+            ),
+            SizedBox(width: isCompact ? 4 : 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: isCompact ? 10 : 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected ? Colors.white : (isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConditionPhotoThumbnail(BuildContext context, String photoUrl, int index, bool isDark) {
+    return GestureDetector(
+      onTap: () => _showEnlargedPhotoDialog(context, photoUrl, index),
+      child: Container(
+        width: 72,
+        height: 72,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(photoUrl, fit: BoxFit.cover),
+        ),
+      ),
+    );
+  }
+
+  void _showEnlargedPhotoDialog(BuildContext context, String photoUrl, int index) {
+    showDialog(
+      context: context,
+      builder: (dCtx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.7,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.black,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: InteractiveViewer(
+                    child: Image.network(photoUrl, fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(dCtx),
+                icon: const Icon(Icons.close, size: 18),
+                label: const Text('Close Photo Preview'),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _openDiscountPickerModal(BuildContext context) {
+    final discountState = context.read<DiscountCubit>().state;
+    final discounts = discountState is DiscountLoaded ? discountState.discounts : <DiscountModel>[];
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (modalCtx) {
+        final isDark = Theme.of(modalCtx).brightness == Brightness.dark;
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Available Discount Coupons',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : AppColors.lightOnSurface),
+              ),
+              const SizedBox(height: 12),
+              if (discounts.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(child: Text('No discount coupons active.')),
+                )
+              else
+                SizedBox(
+                  height: 200,
+                  child: ListView.separated(
+                    itemCount: discounts.length,
+                    separatorBuilder: (context, index) => const SizedBox(width: 6),
+                    itemBuilder: (context, index) {
+                      final disc = discounts[index];
+                      return Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          leading: const Icon(Icons.local_offer, color: AppColors.primary),
+                          title: Text(disc.code, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(disc.title),
+                          trailing: Text(disc.discountText, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryLight)),
+                          onTap: () {
+                            final discAmt = disc.calculateDiscountAmount(_calculatedRent);
+                            setState(() {
+                              _appliedDiscount = disc;
+                              _discountController.text = discAmt.toStringAsFixed(0);
+                              _recalculate();
+                            });
+                            Navigator.pop(modalCtx);
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

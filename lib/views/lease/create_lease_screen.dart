@@ -364,6 +364,11 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
         _depositPaidController.text = totalExpectedDeposit.toStringAsFixed(0);
       } else if (type == 'none') {
         _depositPaidController.text = '0';
+      } else if (type == 'partial') {
+        final currentVal = double.tryParse(_depositPaidController.text) ?? 0.0;
+        if (currentVal >= totalExpectedDeposit || currentVal <= 0) {
+          _depositPaidController.text = (totalExpectedDeposit / 2).toStringAsFixed(0);
+        }
       }
     });
   }
@@ -461,21 +466,43 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
         for (final unit in line.selectedUnits) {
           final excludedSet = line.excludedComponentIdsMap[unit.id] ?? {};
 
-          for (final comp in unit.components) {
-            final isExcluded = excludedSet.contains(comp.id);
+          if (unit.components.isNotEmpty) {
+            for (final comp in unit.components) {
+              final isExcluded = excludedSet.contains(comp.id);
 
+              lineLeasedSubItems.add(LeasedSubItemModel(
+                id: UuidGenerator.generateV4(),
+                leaseId: leaseId,
+                leaseItemId: '${leaseId}_item_${i + 1}',
+                leaseItemUnitId: unit.id,
+                inventoryComponentUnitId: comp.id,
+                subItemId: comp.id,
+                itemId: item.id,
+                storeId: store.id,
+                itemName: comp.componentName,
+                serialNumber: comp.serialNumber,
+                replacementCost: comp.replacementCost,
+                isExcluded: isExcluded,
+                conditionStatus: isExcluded ? 'available' : 'rented',
+                notes: isExcluded ? 'Excluded from rental handover' : null,
+                createdAt: DateTime.now(),
+                updatedAt: DateTime.now(),
+              ));
+            }
+          } else {
+            // Physical unit without sub-components
             lineLeasedSubItems.add(LeasedSubItemModel(
               id: UuidGenerator.generateV4(),
               leaseId: leaseId,
               leaseItemId: '${leaseId}_item_${i + 1}',
-              subItemId: comp.id,
+              leaseItemUnitId: unit.id,
+              subItemId: unit.id,
               itemId: item.id,
               storeId: store.id,
-              itemName: comp.componentName,
-              serialNumber: comp.serialNumber,
-              isExcluded: isExcluded,
-              conditionStatus: isExcluded ? 'available' : 'rented',
-              notes: isExcluded ? 'Excluded from rental handover' : null,
+              itemName: item.name,
+              serialNumber: unit.assetCode,
+              isExcluded: false,
+              conditionStatus: 'rented',
               createdAt: DateTime.now(),
               updatedAt: DateTime.now(),
             ));
@@ -1646,17 +1673,18 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                           final client = customers[index];
                           final isSelected = _selectedCustomer?.id == client.id;
 
-                          return Container(
-                            decoration: BoxDecoration(
-                              color: isDark ? AppColors.darkCard : Colors.white,
+                          return Material(
+                            color: isDark ? AppColors.darkCard : Colors.white,
+                            shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
+                              side: BorderSide(
                                 color: isSelected
                                     ? AppColors.primary
                                     : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
                                 width: isSelected ? 1.5 : 1.0,
                               ),
                             ),
+                            clipBehavior: Clip.antiAlias,
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                               leading: CircleAvatar(
@@ -2391,13 +2419,22 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _depositPaidController,
-                  enabled: _depositPaymentType != 'none',
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
                     labelText: 'Deposit Collected ($currency)',
                     prefixText: '$currency ',
                     isDense: true,
                   ),
+                  onChanged: (val) {
+                    final enteredAmount = double.tryParse(val) ?? 0.0;
+                    setState(() {
+                      if (enteredAmount >= totalExpectedDeposit && totalExpectedDeposit > 0) {
+                        _depositPaymentType = 'full';
+                      } else {
+                        _depositPaymentType = 'partial';
+                      }
+                    });
+                  },
                 ),
               ),
               const SizedBox(width: 10),

@@ -17,7 +17,7 @@ class InventoryUnitRepository {
             .select('*, inventory_component_units(*)')
             .eq('inventory_item_id', productId)
             .eq('store_id', user.id)
-            .order('created_at', ascending: true);
+            .order('unit_number', ascending: true);
 
         return (data as List)
             .map((e) => InventoryUnitModel.fromJson(e as Map<String, dynamic>))

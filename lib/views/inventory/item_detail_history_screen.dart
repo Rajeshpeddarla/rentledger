@@ -234,7 +234,7 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                                       child: Text(unit.assetCode, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
                                     ),
                                     const SizedBox(width: 8),
-                                    Text('Physical Set #${index + 1}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    Text('Set #${unit.unitNumber}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                   ],
                                 ),
                                 Container(

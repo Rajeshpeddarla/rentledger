@@ -6,6 +6,7 @@ class SubItemDefinitionModel extends Equatable {
   final String storeId;
   final String componentName;
   final int defaultQuantity;
+  final double replacementCost;
   final bool isRequired;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -16,6 +17,7 @@ class SubItemDefinitionModel extends Equatable {
     required this.storeId,
     required this.componentName,
     this.defaultQuantity = 1,
+    this.replacementCost = 0.0,
     this.isRequired = true,
     required this.createdAt,
     required this.updatedAt,
@@ -28,6 +30,7 @@ class SubItemDefinitionModel extends Equatable {
       storeId: json['store_id'] as String? ?? json['storeId'] as String? ?? '',
       componentName: json['component_name'] as String? ?? json['componentName'] as String? ?? json['name'] as String? ?? 'Component',
       defaultQuantity: (json['default_quantity'] as num?)?.toInt() ?? 1,
+      replacementCost: (json['replacement_cost'] as num?)?.toDouble() ?? (json['replacementCost'] as num?)?.toDouble() ?? 0.0,
       isRequired: json['is_required'] as bool? ?? true,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
@@ -45,6 +48,7 @@ class SubItemDefinitionModel extends Equatable {
       'store_id': storeId,
       'component_name': componentName,
       'default_quantity': defaultQuantity,
+      'replacement_cost': replacementCost,
       'is_required': isRequired,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -57,6 +61,7 @@ class SubItemDefinitionModel extends Equatable {
     String? storeId,
     String? componentName,
     int? defaultQuantity,
+    double? replacementCost,
     bool? isRequired,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -67,6 +72,7 @@ class SubItemDefinitionModel extends Equatable {
       storeId: storeId ?? this.storeId,
       componentName: componentName ?? this.componentName,
       defaultQuantity: defaultQuantity ?? this.defaultQuantity,
+      replacementCost: replacementCost ?? this.replacementCost,
       isRequired: isRequired ?? this.isRequired,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -80,6 +86,7 @@ class SubItemDefinitionModel extends Equatable {
         storeId,
         componentName,
         defaultQuantity,
+        replacementCost,
         isRequired,
         createdAt,
         updatedAt,

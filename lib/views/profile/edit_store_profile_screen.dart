@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/config/app_theme.dart';
@@ -8,6 +9,29 @@ import '../../core/utils/country_currency.dart';
 import '../../data/models/store_model.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import 'subscription_paywall_screen.dart';
+
+class MaxValueInputFormatter extends TextInputFormatter {
+  final int maxValue;
+
+  MaxValueInputFormatter(this.maxValue);
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.isEmpty) return newValue;
+    final value = int.tryParse(newValue.text);
+    if (value == null) return oldValue;
+    if (value > maxValue) {
+      return TextEditingValue(
+        text: '$maxValue',
+        selection: TextSelection.collapsed(offset: '$maxValue'.length),
+      );
+    }
+    return newValue;
+  }
+}
 
 class EditStoreProfileScreen extends StatefulWidget {
   final StoreModel store;
@@ -24,7 +48,7 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
   late final TextEditingController _businessNameCtrl;
   late final String _selectedCountry;
   late final TextEditingController _workingHoursCtrl;
-  late bool _enableWeekendLease;
+  late final TextEditingController _daysPerWeekCtrl;
   late final TextEditingController _daysPerMonthCtrl;
 
   late final TextEditingController _storePhoneCtrl;
@@ -56,7 +80,7 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
     _businessNameCtrl = TextEditingController(text: store.businessName);
     _selectedCountry = store.country ?? 'India';
     _workingHoursCtrl = TextEditingController(text: (store.dailyWorkingHours <= 0 ? 8 : store.dailyWorkingHours).toString());
-    _enableWeekendLease = store.enableWeekendLease;
+    _daysPerWeekCtrl = TextEditingController(text: store.daysPerWeek.toString());
     _daysPerMonthCtrl = TextEditingController(text: store.daysPerMonth.toString());
 
     _storePhoneCtrl = TextEditingController(text: store.phone ?? '');
@@ -81,6 +105,7 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
   void dispose() {
     _businessNameCtrl.dispose();
     _workingHoursCtrl.dispose();
+    _daysPerWeekCtrl.dispose();
     _daysPerMonthCtrl.dispose();
     _storePhoneCtrl.dispose();
     _storeAddressCtrl.dispose();
@@ -184,15 +209,16 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
 
       final derivedCurrency = CountryCurrency.getCurrencySymbolForCountry(_selectedCountry);
       final workingHours = int.tryParse(_workingHoursCtrl.text.trim()) ?? 8;
-      final daysPerMonth = int.tryParse(_daysPerMonthCtrl.text.trim()) ?? 28;
+      final daysPerWeekVal = int.tryParse(_daysPerWeekCtrl.text.trim()) ?? 6;
+      final daysPerMonthVal = int.tryParse(_daysPerMonthCtrl.text.trim()) ?? 28;
 
       final updatedStore = widget.store.copyWith(
         businessName: _businessNameCtrl.text.trim(),
         country: _selectedCountry,
         currencySymbol: derivedCurrency,
         dailyWorkingHours: workingHours,
-        enableWeekendLease: _enableWeekendLease,
-        daysPerMonth: daysPerMonth,
+        daysPerWeek: daysPerWeekVal <= 0 ? 6 : (daysPerWeekVal > 7 ? 7 : daysPerWeekVal),
+        daysPerMonth: daysPerMonthVal,
         phone: _storePhoneCtrl.text.trim(),
         address: _storeAddressCtrl.text.trim(),
         upiId: _upiIdCtrl.text.trim(),
@@ -646,21 +672,25 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    Text('Daily Working Shift Length (Hours/Day)', style: Theme.of(context).textTheme.titleSmall),
+                    Text('Daily Working Shift Length (Hours/Day, Max 24)', style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: 6),
                     TextFormField(
                       controller: _workingHoursCtrl,
                       keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        MaxValueInputFormatter(24),
+                      ],
                       decoration: const InputDecoration(
-                        hintText: '8 (Default)',
+                        hintText: '8 (Default, Max 24)',
                         prefixIcon: Icon(Icons.access_time_outlined),
-                        helperText: 'Shift length used to auto-calculate hourly <-> daily rates',
+                        helperText: 'Shift length used to auto-calculate hourly <-> daily rates (1 to 24 hrs)',
                       ),
                       validator: (val) {
                         if (val != null && val.trim().isNotEmpty) {
                           final hours = int.tryParse(val.trim());
                           if (hours == null || hours < 1 || hours > 24) {
-                            return 'Shift length must be between 1 and 24 hours';
+                            return 'Shift length cannot exceed 24 hours (1 to 24)';
                           }
                         }
                         return null;
@@ -669,41 +699,52 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
 
                     const SizedBox(height: 14),
 
-                    // Enable Weekend / Sundays Lease Switch
-                    Material(
-                      color: Colors.transparent,
-                      child: SwitchListTile(
-                        value: _enableWeekendLease,
-                        contentPadding: EdgeInsets.zero,
-                        activeThumbColor: AppColors.primary,
-                        title: const Text('Include Sundays / Weekends in Weekly Rate', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                        subtitle: Text(
-                          _enableWeekendLease ? '1 Week = 7 Rental Days (Includes Sundays)' : '1 Week = 6 Rental Days (Excludes Sundays)',
-                          style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                        ),
-                        onChanged: (val) {
-                          setState(() => _enableWeekendLease = val);
-                        },
+                    Text('Working Days Per Week (Max 7)', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: _daysPerWeekCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        MaxValueInputFormatter(7),
+                      ],
+                      decoration: const InputDecoration(
+                        hintText: '6 or 7 (Max 7 days)',
+                        prefixIcon: Icon(Icons.date_range_outlined),
+                        helperText: 'Operating days per week used for rate calculations (1 to 7 days)',
                       ),
+                      validator: (val) {
+                        if (val != null && val.trim().isNotEmpty) {
+                          final d = int.tryParse(val.trim());
+                          if (d == null || d < 1 || d > 7) {
+                            return 'Days per week cannot exceed 7 days (1 to 7)';
+                          }
+                        }
+                        return null;
+                      },
                     ),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 14),
 
-                    Text('Days Per Monthly Lease', style: Theme.of(context).textTheme.titleSmall),
+                    Text('Days Per Monthly Lease (Max 31)', style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: 6),
                     TextFormField(
                       controller: _daysPerMonthCtrl,
                       keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        MaxValueInputFormatter(31),
+                      ],
                       decoration: const InputDecoration(
-                        hintText: '28 (Default)',
+                        hintText: '28 (Default, Max 31)',
                         prefixIcon: Icon(Icons.calendar_view_month_outlined),
-                        helperText: 'Days multiplier used when auto-calculating monthly rates',
+                        helperText: 'Days multiplier used when auto-calculating monthly rates (15 to 31 days)',
                       ),
                       validator: (val) {
                         if (val != null && val.trim().isNotEmpty) {
                           final days = int.tryParse(val.trim());
                           if (days == null || days < 15 || days > 31) {
-                            return 'Days per month must be between 15 and 31';
+                            return 'Days per month cannot exceed 31 days (15 to 31)';
                           }
                         }
                         return null;

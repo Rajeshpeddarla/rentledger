@@ -9,6 +9,7 @@ class InventoryComponentUnitModel extends Equatable {
   final String componentName;
   final String assetCode;
   final String? serialNumber;
+  final double replacementCost;
   final String status; // 'available', 'rented', 'maintenance', 'lost', 'archived'
   final String? notes;
   final DateTime createdAt;
@@ -23,6 +24,7 @@ class InventoryComponentUnitModel extends Equatable {
     required this.componentName,
     required this.assetCode,
     this.serialNumber,
+    this.replacementCost = 0.0,
     this.status = 'available',
     this.notes,
     required this.createdAt,
@@ -44,6 +46,7 @@ class InventoryComponentUnitModel extends Equatable {
       componentName: json['component_name'] as String? ?? json['componentName'] as String? ?? json['name'] as String? ?? 'Component',
       assetCode: json['asset_code'] as String? ?? json['assetCode'] as String? ?? '',
       serialNumber: json['serial_number'] as String? ?? json['serialNumber'] as String?,
+      replacementCost: (json['replacement_cost'] as num?)?.toDouble() ?? (json['replacementCost'] as num?)?.toDouble() ?? 0.0,
       status: json['status'] as String? ?? 'available',
       notes: json['notes'] as String?,
       createdAt: json['created_at'] != null
@@ -65,6 +68,7 @@ class InventoryComponentUnitModel extends Equatable {
       'component_name': componentName,
       'asset_code': assetCode,
       'serial_number': serialNumber,
+      'replacement_cost': replacementCost,
       'status': status,
       'notes': notes,
       'created_at': createdAt.toIso8601String(),
@@ -81,6 +85,7 @@ class InventoryComponentUnitModel extends Equatable {
     String? componentName,
     String? assetCode,
     String? serialNumber,
+    double? replacementCost,
     String? status,
     String? notes,
     DateTime? createdAt,
@@ -95,6 +100,7 @@ class InventoryComponentUnitModel extends Equatable {
       componentName: componentName ?? this.componentName,
       assetCode: assetCode ?? this.assetCode,
       serialNumber: serialNumber ?? this.serialNumber,
+      replacementCost: replacementCost ?? this.replacementCost,
       status: status ?? this.status,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
@@ -112,6 +118,7 @@ class InventoryComponentUnitModel extends Equatable {
         componentName,
         assetCode,
         serialNumber,
+        replacementCost,
         status,
         notes,
         createdAt,

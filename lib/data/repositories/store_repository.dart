@@ -35,16 +35,43 @@ class StoreRepository {
     _cachedStore = store;
     final user = _client.auth.currentUser;
     if (user != null) {
+      final payload = store.copyWith(id: user.id).toDatabaseJson();
       try {
-        final res = await _client
+        // Try direct update first (matches FOR UPDATE RLS policy)
+        final updateData = await _client
             .from('stores')
-            .upsert(store.toJson())
+            .update(payload)
+            .eq('id', user.id)
+            .select();
+
+        if (updateData != null && (updateData as List).isNotEmpty) {
+          _cachedStore = StoreModel.fromJson((updateData as List).first as Map<String, dynamic>);
+          return _cachedStore!;
+        }
+
+        // Fallback to insert if store record does not exist yet
+        final insertRes = await _client
+            .from('stores')
+            .insert(payload)
             .select()
             .single();
-        _cachedStore = StoreModel.fromJson(res);
+
+        _cachedStore = StoreModel.fromJson(insertRes);
         return _cachedStore!;
       } catch (e) {
-        debugPrint('StoreRepository.createOrUpdateStore warning: $e');
+        debugPrint('StoreRepository.createOrUpdateStore error: $e');
+
+        try {
+          final res = await _client
+              .from('stores')
+              .upsert(payload)
+              .select()
+              .single();
+          _cachedStore = StoreModel.fromJson(res);
+          return _cachedStore!;
+        } catch (uErr) {
+          debugPrint('StoreRepository.createOrUpdateStore upsert fallback warning: $uErr');
+        }
       }
     }
     return store;

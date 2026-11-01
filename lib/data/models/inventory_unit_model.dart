@@ -6,6 +6,7 @@ class InventoryUnitModel extends Equatable {
   final String inventoryItemId;
   final String storeId;
   final String assetCode;
+  final int unitNumber;
   final String status; // 'available', 'rented', 'maintenance', 'lost', 'awaiting_inspection', 'archived'
   final String? notes;
   final DateTime createdAt;
@@ -19,6 +20,7 @@ class InventoryUnitModel extends Equatable {
     required this.inventoryItemId,
     required this.storeId,
     required this.assetCode,
+    this.unitNumber = 1,
     this.status = 'available',
     this.notes,
     required this.createdAt,
@@ -45,6 +47,7 @@ class InventoryUnitModel extends Equatable {
       inventoryItemId: json['inventory_item_id'] as String? ?? json['inventoryItemId'] as String? ?? '',
       storeId: json['store_id'] as String? ?? json['storeId'] as String? ?? '',
       assetCode: json['asset_code'] as String? ?? json['assetCode'] as String? ?? '',
+      unitNumber: (json['unit_number'] as num?)?.toInt() ?? (json['unitNumber'] as num?)?.toInt() ?? 1,
       status: json['status'] as String? ?? 'available',
       notes: json['notes'] as String?,
       createdAt: json['created_at'] != null
@@ -63,6 +66,7 @@ class InventoryUnitModel extends Equatable {
       'inventory_item_id': inventoryItemId,
       'store_id': storeId,
       'asset_code': assetCode,
+      'unit_number': unitNumber,
       'status': status,
       'notes': notes,
       'created_at': createdAt.toIso8601String(),
@@ -75,6 +79,7 @@ class InventoryUnitModel extends Equatable {
     String? inventoryItemId,
     String? storeId,
     String? assetCode,
+    int? unitNumber,
     String? status,
     String? notes,
     DateTime? createdAt,
@@ -86,6 +91,7 @@ class InventoryUnitModel extends Equatable {
       inventoryItemId: inventoryItemId ?? this.inventoryItemId,
       storeId: storeId ?? this.storeId,
       assetCode: assetCode ?? this.assetCode,
+      unitNumber: unitNumber ?? this.unitNumber,
       status: status ?? this.status,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
@@ -100,6 +106,7 @@ class InventoryUnitModel extends Equatable {
         inventoryItemId,
         storeId,
         assetCode,
+        unitNumber,
         status,
         notes,
         createdAt,

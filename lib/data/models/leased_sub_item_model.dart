@@ -11,6 +11,7 @@ class LeasedSubItemModel extends Equatable {
   final String storeId;
   final String itemName;
   final String? serialNumber;
+  final double replacementCost;
   final bool isExcluded;
   final String conditionStatus; // 'available', 'rented', 'awaiting_inspection', 'maintenance', 'lost'
   final String? notes;
@@ -28,6 +29,7 @@ class LeasedSubItemModel extends Equatable {
     required this.storeId,
     required this.itemName,
     this.serialNumber,
+    this.replacementCost = 0.0,
     this.isExcluded = false,
     this.conditionStatus = 'available',
     this.notes,
@@ -36,6 +38,10 @@ class LeasedSubItemModel extends Equatable {
   });
 
   factory LeasedSubItemModel.fromJson(Map<String, dynamic> json) {
+    final statusStr = (json['condition_status'] as String? ?? json['conditionStatus'] as String? ?? 'available').toLowerCase();
+    final bool parsedExcluded = (json['is_excluded'] as bool?) ??
+        (statusStr == 'available' || statusStr == 'excluded');
+
     return LeasedSubItemModel(
       id: json['id'] as String,
       leaseId: json['lease_id'] as String? ?? json['leaseId'] as String? ?? '',
@@ -47,8 +53,9 @@ class LeasedSubItemModel extends Equatable {
       storeId: json['store_id'] as String? ?? json['storeId'] as String? ?? 'demo_store_1',
       itemName: json['item_name'] as String? ?? json['itemName'] as String? ?? 'Sub-Item Unit',
       serialNumber: json['serial_number'] as String?,
-      isExcluded: json['is_excluded'] as bool? ?? false,
-      conditionStatus: json['condition_status'] as String? ?? 'available',
+      replacementCost: (json['replacement_cost'] as num?)?.toDouble() ?? (json['replacementCost'] as num?)?.toDouble() ?? 0.0,
+      isExcluded: parsedExcluded,
+      conditionStatus: statusStr,
       notes: json['notes'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
@@ -71,9 +78,29 @@ class LeasedSubItemModel extends Equatable {
       'store_id': storeId,
       'item_name': itemName,
       'serial_number': serialNumber,
+      'replacement_cost': replacementCost,
       'is_excluded': isExcluded,
       'condition_status': conditionStatus,
       'notes': notes,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+    };
+  }
+
+  /// Exact payload matching Supabase 'leased_sub_items' database table schema
+  Map<String, dynamic> toDatabaseJson() {
+    return {
+      'id': id,
+      'lease_id': leaseId,
+      'lease_item_id': leaseItemId,
+      'sub_item_id': subItemId,
+      'item_id': itemId,
+      'store_id': storeId,
+      'item_name': itemName,
+      if (serialNumber != null) 'serial_number': serialNumber,
+      'replacement_cost': replacementCost,
+      'condition_status': conditionStatus,
+      if (notes != null) 'notes': notes,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -90,6 +117,7 @@ class LeasedSubItemModel extends Equatable {
     String? storeId,
     String? itemName,
     String? serialNumber,
+    double? replacementCost,
     bool? isExcluded,
     String? conditionStatus,
     String? notes,
@@ -107,6 +135,7 @@ class LeasedSubItemModel extends Equatable {
       storeId: storeId ?? this.storeId,
       itemName: itemName ?? this.itemName,
       serialNumber: serialNumber ?? this.serialNumber,
+      replacementCost: replacementCost ?? this.replacementCost,
       isExcluded: isExcluded ?? this.isExcluded,
       conditionStatus: conditionStatus ?? this.conditionStatus,
       notes: notes ?? this.notes,
@@ -127,6 +156,7 @@ class LeasedSubItemModel extends Equatable {
         storeId,
         itemName,
         serialNumber,
+        replacementCost,
         isExcluded,
         conditionStatus,
         notes,
