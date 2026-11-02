@@ -145,27 +145,6 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
         title: Text(item.name),
         elevation: 0,
         backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit Equipment',
-            onPressed: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => AddEditItemScreen(initialItem: item, isPro: isPro),
-                ),
-              );
-              if (mounted) {
-                _loadUnits();
-              }
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: AppColors.errorRed),
-            tooltip: 'Delete Equipment Item',
-            onPressed: () => _showDeleteConfirmationDialog(context, item),
-          ),
-        ],
       ),
       body: BlocBuilder<LeaseCubit, LeaseState>(
         builder: (context, leaseState) {
@@ -237,11 +216,114 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Text(item.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      if (item.description != null && item.description!.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(item.description!, style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                      ],
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(item.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                if (item.description != null && item.description!.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(item.description!, style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 80,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // 1. Separate Green Edit Container Button (Fixed 80px Width)
+                                InkWell(
+                                  onTap: () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => AddEditItemScreen(initialItem: item, isPro: isPro),
+                                      ),
+                                    );
+                                    if (mounted) {
+                                      _loadUnits();
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 6),
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: isDark ? AppColors.primary : const Color(0xFFA7F3D0),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.edit_outlined,
+                                          size: 13,
+                                          color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Edit',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 6),
+
+                                // 2. Separate Red Delete Container Button (Fixed 80px Width)
+                                InkWell(
+                                  onTap: () => _showDeleteConfirmationDialog(context, item),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 6),
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA),
+                                      ),
+                                    ),
+                                    child: const Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.delete_outline,
+                                          size: 13,
+                                          color: AppColors.errorRed,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Delete',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.errorRed,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 14),
                       Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                       const SizedBox(height: 10),

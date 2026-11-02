@@ -214,40 +214,67 @@ class InventoryRepository {
     final user = _client.auth.currentUser;
     if (user != null) {
       try {
-        // Delete component units first
+        // 1. Unlink component unit references in leased_sub_items table
+        try {
+          await _client
+              .from('leased_sub_items')
+              .update({'inventory_component_unit_id': null})
+              .eq('item_id', id);
+        } catch (e) {
+          debugPrint('deleteItem unbind leased_sub_items warning: $e');
+        }
+
+        // 2. Unlink or delete physical unit references in lease_item_units table
+        try {
+          await _client
+              .from('lease_item_units')
+              .delete()
+              .eq('lease_item_id', id);
+        } catch (_) {
+          try {
+            await _client
+                .from('lease_item_units')
+                .update({'inventory_unit_id': null})
+                .eq('lease_item_id', id);
+          } catch (e) {
+            debugPrint('deleteItem unbind lease_item_units warning: $e');
+          }
+        }
+
+        // 3. Delete component units
         try {
           await _client.from('inventory_component_units').delete().eq('inventory_item_id', id);
         } catch (e) {
           debugPrint('deleteItem component_units warning: $e');
         }
 
-        // Delete physical units
+        // 4. Delete physical units
         try {
           await _client.from('inventory_units').delete().eq('inventory_item_id', id);
         } catch (e) {
           debugPrint('deleteItem inventory_units warning: $e');
         }
 
-        // Delete sub item definitions template
+        // 5. Delete sub item definitions template & sub items
         try {
           await _client.from('sub_item_definitions').delete().eq('parent_item_id', id);
-        } catch (e) {
-          debugPrint('deleteItem sub_item_definitions warning: $e');
-        }
+        } catch (_) {}
 
-        // Delete sub items
         try {
           await _client.from('sub_items').delete().eq('parent_item_id', id);
-        } catch (e) {
-          debugPrint('deleteItem sub_items warning: $e');
-        }
+        } catch (_) {}
 
-        // Delete main inventory item
-        await _client.from('inventory_items').delete().eq('id', id);
-        debugPrint('--> [DELETE ITEM SUCCESS] Equipment item deleted: $id');
+        // 6. Delete main inventory item or archive if past lease contracts exist
+        try {
+          await _client.from('inventory_items').delete().eq('id', id);
+          debugPrint('--> [DELETE ITEM SUCCESS] Equipment item permanently deleted: $id');
+        } catch (itemErr) {
+          debugPrint('--> [DELETE ITEM WARNING] Foreign key active on leases, marking as archived: $itemErr');
+          await _client.from('inventory_items').update({'is_archived': true}).eq('id', id);
+        }
       } catch (e) {
         debugPrint('InventoryRepository.deleteItem error: $e');
-        throw Exception('Failed to delete item: $e');
+        throw Exception('Failed to delete equipment item: $e');
       }
     }
 

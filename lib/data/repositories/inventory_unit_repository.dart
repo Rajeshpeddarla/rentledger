@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/inventory_item_model.dart';
 import '../models/inventory_unit_model.dart';
 import '../models/sub_item_definition_model.dart';
 
@@ -138,6 +139,10 @@ class InventoryUnitRepository {
     final user = _client.auth.currentUser;
     if (user == null) return;
 
+    try {
+      await _client.from('sub_item_definitions').delete().eq('parent_item_id', productId);
+    } catch (_) {}
+
     for (final def in definitions) {
       final payload = def.copyWith(
         parentItemId: productId,
@@ -186,6 +191,46 @@ class InventoryUnitRepository {
       } catch (uErr) {
         debugPrint('Error saving inventory_unit: $uErr');
       }
+    }
+  }
+
+  /// Single-request RPC transaction to save inventory item product, definitions, units, and components
+  Future<void> saveInventoryItemTransaction({
+    required InventoryItemModel item,
+    required List<SubItemDefinitionModel> definitions,
+    required List<InventoryUnitModel> units,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final Map<String, dynamic> itemJson = item.copyWith(storeId: user.id).toJson();
+      final List<Map<String, dynamic>> defsJson = definitions.map((d) => d.copyWith(storeId: user.id, parentItemId: item.id).toJson()).toList();
+
+      final List<Map<String, dynamic>> unitsJson = [];
+      for (final u in units) {
+        final unitMap = u.copyWith(storeId: user.id, inventoryItemId: item.id).toJson();
+        final List<Map<String, dynamic>> compsJson = u.components.map((c) => c.copyWith(storeId: user.id, inventoryItemId: item.id, inventoryUnitId: u.id).toJson()).toList();
+        unitMap['components'] = compsJson;
+        unitsJson.add(unitMap);
+      }
+
+      final Map<String, dynamic> fullPayload = {
+        'item': itemJson,
+        'definitions': defsJson,
+        'units': unitsJson,
+      };
+
+      debugPrint('--> [SAVE INVENTORY RPC] Executing single-request transaction for item ${item.id}');
+      final res = await _client.rpc('save_inventory_item_transaction', params: {
+        'p_data': fullPayload,
+      });
+
+      debugPrint('--> [SAVE INVENTORY RPC SUCCESS] Inventory save transaction completed in 1 request: $res');
+    } catch (e) {
+      debugPrint('--> [SAVE INVENTORY RPC WARNING] Falling back to sequential save: $e');
+      await saveDefinitions(productId: item.id, definitions: definitions);
+      await savePhysicalSets(productId: item.id, units: units);
     }
   }
 }

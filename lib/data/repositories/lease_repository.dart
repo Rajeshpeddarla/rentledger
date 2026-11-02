@@ -130,9 +130,19 @@ class LeaseRepository {
     String? excludeLeaseId,
   }) async {
     final effectiveTotalQty = totalQuantity <= 0 ? 1 : totalQuantity;
+
+    // For immediate active dispatches (starting now or within 15 mins), if requested quantity is <= total owned sets, allow dispatch
+    final isImmediateDispatch = startTime.isBefore(DateTime.now().add(const Duration(minutes: 15)));
+    if (isImmediateDispatch && requestedQuantity <= effectiveTotalQty) {
+      return false;
+    }
+
     final activeLeases = await getLeases(itemId: itemId);
+
     final totalOverlapping = activeLeases.where((l) {
       if (excludeLeaseId != null && l.id == excludeLeaseId) return false;
+      // Ignore returned or canceled leases
+      if (l.status == 'returned' || l.status == 'canceled' || l.actualReturnTime != null) return false;
       if (l.status != 'active' && l.status != 'upcoming' && l.status != 'reserved') return false;
 
       // Overlap condition
@@ -179,6 +189,36 @@ class LeaseRepository {
 
     final user = _client.auth.currentUser;
     if (user != null) {
+      try {
+        final Map<String, dynamic> fullPayload = lease.copyWith(storeId: user.id).toDatabaseJson();
+
+        // Convert leaseItems & leasedSubItems into nested JSON for single RPC transaction
+        final List<Map<String, dynamic>> itemsJson = [];
+        for (final line in lease.leaseItems) {
+          final lineMap = line.copyWith(leaseId: lease.id, storeId: user.id).toJson();
+          final List<Map<String, dynamic>> subItemsJson = [];
+          for (final sub in line.leasedSubItems) {
+            final subMap = sub.copyWith(leaseId: lease.id, leaseItemId: line.id, storeId: user.id).toDatabaseJson();
+            if (sub.leaseItemUnitId != null) subMap['lease_item_unit_id'] = sub.leaseItemUnitId;
+            if (sub.inventoryComponentUnitId != null) subMap['inventory_component_unit_id'] = sub.inventoryComponentUnitId;
+            subItemsJson.add(subMap);
+          }
+          lineMap['leased_sub_items'] = subItemsJson;
+          itemsJson.add(lineMap);
+        }
+        fullPayload['lease_items'] = itemsJson;
+
+        debugPrint('--> [CREATE LEASE RPC] Executing single-request transaction for lease ${lease.id}');
+        final res = await _client.rpc('create_lease_transaction', params: {
+          'p_lease': fullPayload,
+        });
+
+        debugPrint('--> [CREATE LEASE RPC SUCCESS] Transaction completed in 1 request: $res');
+        return lease;
+      } catch (rpcErr) {
+        debugPrint('--> [CREATE LEASE RPC WARNING] Falling back to sequential execution: $rpcErr');
+      }
+
       String? insertedLeaseId;
       try {
         final payload = lease.copyWith(storeId: user.id).toDatabaseJson();
@@ -321,7 +361,7 @@ class LeaseRepository {
     return lease;
   }
 
-  /// Take Back / Settlement Update for Lease Order, Line Items and Leased Sub-Items
+  /// Take Back / Settlement Update for Lease Order, Line Items and Leased Sub-Items via single RPC transaction
   Future<LeaseModel> returnAndSettleLease(LeaseModel lease) async {
     final updated = lease.copyWith(
       status: 'returned',
@@ -331,6 +371,42 @@ class LeaseRepository {
 
     final user = _client.auth.currentUser;
     if (user != null) {
+      try {
+        final Map<String, dynamic> settlementPayload = updated.copyWith(storeId: user.id).toDatabaseJson();
+
+        final List<Map<String, dynamic>> itemsJson = [];
+        for (final line in updated.leaseItems) {
+          final lineMap = line.copyWith(leaseId: updated.id, storeId: user.id).toJson();
+          final List<Map<String, dynamic>> subItemsJson = [];
+          for (final sub in line.leasedSubItems) {
+            final subMap = sub.copyWith(leaseId: updated.id, leaseItemId: line.id, storeId: user.id).toDatabaseJson();
+            if (sub.leaseItemUnitId != null) subMap['lease_item_unit_id'] = sub.leaseItemUnitId;
+            if (sub.inventoryComponentUnitId != null) subMap['inventory_component_unit_id'] = sub.inventoryComponentUnitId;
+            subItemsJson.add(subMap);
+          }
+          lineMap['leased_sub_items'] = subItemsJson;
+          itemsJson.add(lineMap);
+        }
+        settlementPayload['lease_items'] = itemsJson;
+
+        debugPrint('--> [SETTLE RPC] Executing single-request settlement transaction for lease ${updated.id}');
+        final res = await _client.rpc('return_settle_lease_transaction', params: {
+          'p_settlement': settlementPayload,
+        });
+
+        debugPrint('--> [SETTLE RPC SUCCESS] Settlement transaction completed in 1 request: $res');
+
+        final index = _leases.indexWhere((l) => l.id == updated.id);
+        if (index >= 0) {
+          _leases[index] = updated;
+        } else {
+          _leases.insert(0, updated);
+        }
+        return updated;
+      } catch (rpcErr) {
+        debugPrint('--> [SETTLE RPC WARNING] Falling back to sequential execution: $rpcErr');
+      }
+
       try {
         debugPrint('--> [SETTLE STEP 1] Updating master lease in "leases" table: ${updated.id}');
         await _client

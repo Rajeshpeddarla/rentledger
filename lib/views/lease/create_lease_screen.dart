@@ -626,6 +626,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       if (e.toString().contains('FREE_LEASE_LIMIT_REACHED')) {
         _showUpgradePaywallDialog();
       } else {
+        print("'Error dispatching lease: $e'");
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error dispatching lease: $e'),

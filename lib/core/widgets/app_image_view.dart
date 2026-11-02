@@ -90,23 +90,6 @@ class _AppImageViewState extends State<AppImageView> {
       }
     }
 
-    // 2. Search local storage for file by basename
-    final filename = raw.split('/').last.split('?').first;
-    if (filename.isNotEmpty) {
-      try {
-        final appDir = await getApplicationDocumentsDirectory();
-        final mediaDir = Directory('${appDir.path}/rentledger_media');
-        if (await mediaDir.exists()) {
-          await for (final entity in mediaDir.list(recursive: true)) {
-            if (entity is File && entity.path.endsWith(filename)) {
-              if (mounted) setState(() => _resolvedFile = entity);
-              return;
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
     if (mounted) {
       setState(() {
         _resolvedFile = null;

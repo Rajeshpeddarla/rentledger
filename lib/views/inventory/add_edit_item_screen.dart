@@ -52,12 +52,14 @@ class PhysicalSetInput {
   String assetCode;
   int unitNumber;
   Map<String, int> componentQuantities; // componentName -> qty
+  List<InventoryComponentUnitModel> existingCompUnits;
 
   PhysicalSetInput({
     this.unitId,
     required this.assetCode,
     required this.unitNumber,
     required this.componentQuantities,
+    this.existingCompUnits = const [],
   });
 }
 
@@ -363,9 +365,11 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
     try {
       final int setsCount = int.tryParse(_setsCountController.text) ?? 1;
+      final itemId = widget.initialItem?.id ?? UuidGenerator.generateV4();
+      final shortId = itemId.replaceAll('-', '').substring(0, 6).toUpperCase();
       final tag = _skuController.text.trim().isNotEmpty
           ? _skuController.text.trim().toUpperCase()
-          : 'UNIT';
+          : 'ITM-$shortId';
 
       final repo = InventoryUnitRepository();
       _physicalSetInputs.clear();
@@ -399,10 +403,33 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             savedCompMap[entry.key] = 0;
           }
 
-          // 2. Count existing component units for this physical set
-          for (final compUnit in existing.components) {
-            savedCompMap[compUnit.componentName] =
-                (savedCompMap[compUnit.componentName] ?? 0) + 1;
+          final templateNamesList = defaultCompMap.keys.toList();
+
+          // 2. Count existing component units for this physical set, mapping renamed components cleanly
+          for (int cIdx = 0; cIdx < existing.components.length; cIdx++) {
+            final compUnit = existing.components[cIdx];
+            final existingName = compUnit.componentName.trim();
+
+            if (savedCompMap.containsKey(existingName)) {
+              // Exact name match
+              savedCompMap[existingName] = (savedCompMap[existingName] ?? 0) + 1;
+            } else {
+              // Component was renamed in Step 1: map to corresponding template component name by index
+              final targetTemplateName = cIdx < templateNamesList.length
+                  ? templateNamesList[cIdx]
+                  : (templateNamesList.isNotEmpty ? templateNamesList.last : existingName);
+
+              savedCompMap[targetTemplateName] = (savedCompMap[targetTemplateName] ?? 0) + 1;
+            }
+          }
+
+          // 3. If template default quantity was increased in Step 1, top up the count to match default quantity
+          for (final entry in defaultCompMap.entries) {
+            final tName = entry.key;
+            final tQty = entry.value;
+            if ((savedCompMap[tName] ?? 0) < tQty) {
+              savedCompMap[tName] = tQty;
+            }
           }
 
           _physicalSetInputs.add(
@@ -411,6 +438,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
               assetCode: existing.assetCode,
               unitNumber: existing.unitNumber > 0 ? existing.unitNumber : setNum,
               componentQuantities: savedCompMap,
+              existingCompUnits: existing.components,
             ),
           );
         } else {
@@ -476,7 +504,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         uploadedUrl = await R2StorageService.instance.uploadImage(
           file: _pickedImage!,
           folder: 'inventory/$itemId',
-          filename: 'product.webp',
+          filename: 'product_${DateTime.now().millisecondsSinceEpoch}.webp',
         );
       }
 
@@ -533,7 +561,10 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
       // 4. Save Physical Set Units & Physical Component Units
       final List<InventoryUnitModel> unitModels = [];
-      final tag = itemModel.displaySku.trim().toUpperCase();
+      final shortId = itemId.replaceAll('-', '').substring(0, 6).toUpperCase();
+      final tag = itemModel.sku.trim().isNotEmpty
+          ? itemModel.sku.trim().toUpperCase()
+          : 'ITM-$shortId';
 
       for (final setInput in _physicalSetInputs) {
         final unitId = setInput.unitId ?? UuidGenerator.generateV4();
@@ -544,23 +575,36 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           final compName = entry.key;
           final qty = entry.value;
 
-          final defModel = defModels.where((d) => d.componentName == compName).firstOrNull;
+          final defModel = defModels.where((d) => d.componentName.trim().toLowerCase() == compName.trim().toLowerCase()).firstOrNull;
+
+          List<InventoryComponentUnitModel> matchingExistingComps = setInput.existingCompUnits
+              .where((c) => c.componentName.trim().toLowerCase() == compName.trim().toLowerCase())
+              .toList();
+
+          // Fallback if component was renamed in Step 1: match remaining unassigned component units by position
+          if (matchingExistingComps.isEmpty) {
+            matchingExistingComps = List.from(setInput.existingCompUnits);
+          }
 
           for (int piece = 1; piece <= qty; piece++) {
+            final existingComp = (piece - 1 < matchingExistingComps.length)
+                ? matchingExistingComps[piece - 1]
+                : null;
+
             final compPrefix = compName.substring(0, compName.length >= 3 ? 3 : compName.length).toUpperCase();
-            final compCode = '$tag-$compPrefix-${setInput.unitNumber.toString().padLeft(2, '0')}-${piece.toString().padLeft(2, '0')}';
+            final defaultCode = '$tag-$compPrefix-${setInput.unitNumber.toString().padLeft(2, '0')}-${piece.toString().padLeft(2, '0')}';
 
             compUnits.add(InventoryComponentUnitModel(
-              id: UuidGenerator.generateV4(),
+              id: existingComp?.id ?? UuidGenerator.generateV4(),
               inventoryUnitId: unitId,
               inventoryItemId: itemId,
               componentDefinitionId: defModel?.id,
               storeId: store.id,
               componentName: compName,
-              assetCode: compCode,
+              assetCode: existingComp?.assetCode ?? defaultCode,
               replacementCost: defModel?.replacementCost ?? 0.0,
-              status: 'available',
-              createdAt: DateTime.now(),
+              status: existingComp?.status ?? 'available',
+              createdAt: existingComp?.createdAt ?? DateTime.now(),
               updatedAt: DateTime.now(),
             ));
           }
@@ -579,7 +623,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         ));
       }
 
-      await repo.savePhysicalSets(productId: itemId, units: unitModels);
+      await repo.saveInventoryItemTransaction(item: itemModel, definitions: defModels, units: unitModels);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
