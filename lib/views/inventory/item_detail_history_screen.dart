@@ -53,6 +53,78 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
     }
   }
 
+  void _showDeleteConfirmationDialog(BuildContext context, InventoryItemModel item) {
+    showDialog(
+      context: context,
+      builder: (dCtx) {
+        final isDark = Theme.of(dCtx).brightness == Brightness.dark;
+        return AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.delete_forever, color: AppColors.errorRed),
+              SizedBox(width: 8),
+              Text('Delete Equipment?'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Are you sure you want to permanently delete "${item.name}"?',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This will permanently remove this equipment item, along with all its registered physical sets, sub-items, and component units from your store.',
+                style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                Navigator.pop(dCtx);
+                try {
+                  await context.read<InventoryCubit>().deleteItem(item.id);
+                  if (!context.mounted) return;
+                  Navigator.pop(context); // Return to inventory list
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Equipment "${item.name}" deleted successfully!'),
+                      backgroundColor: AppColors.primary,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                } catch (e) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error deleting equipment: $e'),
+                      backgroundColor: AppColors.errorRed,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Delete Permanently'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.errorRed,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -76,6 +148,7 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit Equipment',
             onPressed: () async {
               await Navigator.of(context).push(
                 MaterialPageRoute(
@@ -86,6 +159,11 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                 _loadUnits();
               }
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: AppColors.errorRed),
+            tooltip: 'Delete Equipment Item',
+            onPressed: () => _showDeleteConfirmationDialog(context, item),
           ),
         ],
       ),

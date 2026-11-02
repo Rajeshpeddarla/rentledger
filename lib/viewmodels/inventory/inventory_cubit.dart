@@ -59,6 +59,15 @@ class InventoryCubit extends Cubit<InventoryState> {
     }
   }
 
+  Future<void> deleteItem(String itemId) async {
+    try {
+      await _inventoryRepository.deleteItem(itemId);
+      await loadInventory();
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
+
   Future<void> restockItem(String itemId, {int quantity = 1}) async {
     try {
       await _inventoryRepository.restockItem(itemId, quantity: quantity);

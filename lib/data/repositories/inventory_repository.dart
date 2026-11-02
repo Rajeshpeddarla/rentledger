@@ -208,4 +208,49 @@ class InventoryRepository {
       _items[index] = _items[index].copyWith(isArchived: true);
     }
   }
+
+  /// Delete equipment item and all associated physical sets, components, and definitions
+  Future<void> deleteItem(String id) async {
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        // Delete component units first
+        try {
+          await _client.from('inventory_component_units').delete().eq('inventory_item_id', id);
+        } catch (e) {
+          debugPrint('deleteItem component_units warning: $e');
+        }
+
+        // Delete physical units
+        try {
+          await _client.from('inventory_units').delete().eq('inventory_item_id', id);
+        } catch (e) {
+          debugPrint('deleteItem inventory_units warning: $e');
+        }
+
+        // Delete sub item definitions template
+        try {
+          await _client.from('sub_item_definitions').delete().eq('parent_item_id', id);
+        } catch (e) {
+          debugPrint('deleteItem sub_item_definitions warning: $e');
+        }
+
+        // Delete sub items
+        try {
+          await _client.from('sub_items').delete().eq('parent_item_id', id);
+        } catch (e) {
+          debugPrint('deleteItem sub_items warning: $e');
+        }
+
+        // Delete main inventory item
+        await _client.from('inventory_items').delete().eq('id', id);
+        debugPrint('--> [DELETE ITEM SUCCESS] Equipment item deleted: $id');
+      } catch (e) {
+        debugPrint('InventoryRepository.deleteItem error: $e');
+        throw Exception('Failed to delete item: $e');
+      }
+    }
+
+    _items.removeWhere((i) => i.id == id);
+  }
 }

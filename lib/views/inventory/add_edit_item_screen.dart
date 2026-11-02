@@ -533,6 +533,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
       // 4. Save Physical Set Units & Physical Component Units
       final List<InventoryUnitModel> unitModels = [];
+      final tag = itemModel.displaySku.trim().toUpperCase();
 
       for (final setInput in _physicalSetInputs) {
         final unitId = setInput.unitId ?? UuidGenerator.generateV4();
@@ -547,7 +548,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
           for (int piece = 1; piece <= qty; piece++) {
             final compPrefix = compName.substring(0, compName.length >= 3 ? 3 : compName.length).toUpperCase();
-            final compCode = '$compPrefix-${setInput.unitNumber.toString().padLeft(2, '0')}-${piece.toString().padLeft(2, '0')}';
+            final compCode = '$tag-$compPrefix-${setInput.unitNumber.toString().padLeft(2, '0')}-${piece.toString().padLeft(2, '0')}';
 
             compUnits.add(InventoryComponentUnitModel(
               id: UuidGenerator.generateV4(),

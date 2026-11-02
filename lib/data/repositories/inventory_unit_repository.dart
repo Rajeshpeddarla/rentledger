@@ -178,7 +178,7 @@ class InventoryUnitRepository {
           ).toJson();
 
           try {
-            await _client.from('inventory_component_units').upsert(compPayload);
+            await _client.from('inventory_component_units').upsert(compPayload, onConflict: 'id');
           } catch (cErr) {
             debugPrint('Error saving inventory_component_unit: $cErr');
           }
