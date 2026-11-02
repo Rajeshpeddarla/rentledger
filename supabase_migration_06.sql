@@ -1,4 +1,4 @@
--- RentLedger Migration 06: Per-Item Rate Discounts & Discounted Net Rent
+-- RentLedger Migration 06: Per-Item Rate Discounts, Discounted Net Rent & Replacement Cost
 -- Run this in your Supabase Dashboard -> SQL Editor
 
 BEGIN;
@@ -14,7 +14,11 @@ ADD COLUMN IF NOT EXISTS discounted_rate_monthly NUMERIC DEFAULT 0.0;
 ALTER TABLE public.leases
 ADD COLUMN IF NOT EXISTS discounted_net_rent_total NUMERIC DEFAULT 0.0;
 
--- 3. Reload PostgREST schema cache
+-- 3. Add replacement_cost column to sub_item_definitions table for Damage/Loss Fee per Piece
+ALTER TABLE public.sub_item_definitions
+ADD COLUMN IF NOT EXISTS replacement_cost NUMERIC DEFAULT 0.0;
+
+-- 4. Reload PostgREST schema cache
 NOTIFY pgrst, 'reload schema';
 
 COMMIT;

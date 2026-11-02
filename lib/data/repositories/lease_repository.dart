@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/utils/uuid_generator.dart';
 import '../models/lease_item_model.dart';
 import '../models/lease_model.dart';
 import '../models/leased_sub_item_model.dart';
@@ -180,11 +179,13 @@ class LeaseRepository {
 
     final user = _client.auth.currentUser;
     if (user != null) {
+      String? insertedLeaseId;
       try {
         final payload = lease.copyWith(storeId: user.id).toDatabaseJson();
         debugPrint('--> [CREATE LEASE STEP 1] Inserting master lease into "leases" table: ${lease.id}');
         final res = await _client.from('leases').insert(payload).select().single();
         final created = LeaseModel.fromJson(res);
+        insertedLeaseId = created.id;
         debugPrint('--> [CREATE LEASE STEP 1 SUCCESS] Master lease inserted: ID = ${created.id}');
 
         // Save line items to lease_items table and sub-items to leased_sub_items table
@@ -195,94 +196,76 @@ class LeaseRepository {
               leaseId: created.id,
               storeId: user.id,
             ).toJson();
-            try {
-              debugPrint('--> [CREATE LEASE STEP 2] Inserting line item into "lease_items" table: ID = ${line.id}');
-              final lineRes = await _client.from('lease_items').upsert(linePayload).select().single();
-              final savedLine = LeaseItemModel.fromJson(lineRes);
-              debugPrint('--> [CREATE LEASE STEP 2 SUCCESS] Line item inserted: ID = ${savedLine.id}');
 
-              // Save leased sub-items if present & sync physical asset statuses
-              final List<LeasedSubItemModel> savedSubItems = [];
-              final Set<String> processedUnitIds = {};
+            debugPrint('--> [CREATE LEASE STEP 2] Inserting line item into "lease_items" table: ID = ${line.id}');
+            final lineRes = await _client.from('lease_items').upsert(linePayload).select().single();
+            final savedLine = LeaseItemModel.fromJson(lineRes);
+            debugPrint('--> [CREATE LEASE STEP 2 SUCCESS] Line item inserted: ID = ${savedLine.id}');
 
-              if (line.leasedSubItems.isNotEmpty) {
-                for (final sub in line.leasedSubItems) {
-                  final updatedSub = sub.copyWith(
-                    leaseId: created.id,
-                    leaseItemId: savedLine.id,
-                    storeId: user.id,
-                  );
-                  final subPayload = updatedSub.toDatabaseJson();
+            // Save leased sub-items if present & sync physical asset statuses
+            final List<LeasedSubItemModel> savedSubItems = [];
+            final Set<String> processedUnitIds = {};
 
-                  try {
-                    debugPrint('--> [CREATE LEASE STEP 3] Inserting sub-item into "leased_sub_items" table: ID = ${sub.id}');
-                    final subRes = await _client.from('leased_sub_items').upsert(subPayload).select().single();
-                    final savedSub = LeasedSubItemModel.fromJson(subRes).copyWith(
-                      leaseItemUnitId: updatedSub.leaseItemUnitId,
-                      inventoryComponentUnitId: updatedSub.inventoryComponentUnitId,
-                      isExcluded: updatedSub.isExcluded,
-                    );
-                    savedSubItems.add(savedSub);
-                    debugPrint('--> [CREATE LEASE STEP 3 SUCCESS] Sub-item inserted: ID = ${savedSub.id}');
+            if (line.leasedSubItems.isNotEmpty) {
+              // STEP 2.5: Create lease_item_units parent rows FIRST to satisfy leased_sub_items_lease_item_unit_id_fkey constraint
+              for (final sub in line.leasedSubItems) {
+                if (sub.leaseItemUnitId != null &&
+                    sub.leaseItemUnitId!.isNotEmpty &&
+                    processedUnitIds.add(sub.leaseItemUnitId!)) {
+                  final unitPK = sub.leaseItemUnitId!;
+                  debugPrint('--> [CREATE LEASE STEP 2.5] Upserting "lease_item_units" parent row: ID = $unitPK');
+                  await _client.from('lease_item_units').upsert({
+                    'id': unitPK,
+                    'lease_id': created.id,
+                    'lease_item_id': savedLine.id,
+                    'inventory_unit_id': unitPK,
+                    'checked_out_at': created.startTime.toIso8601String(),
+                    'inspection_status': 'rented',
+                  });
+                  debugPrint('--> [CREATE LEASE STEP 2.5 SUCCESS] lease_item_units row created for unit $unitPK');
 
-                    // Sync physical unit state in inventory_units and lease_item_units ONCE per physical unit ID
-                    if (updatedSub.leaseItemUnitId != null &&
-                        updatedSub.leaseItemUnitId!.isNotEmpty &&
-                        processedUnitIds.add(updatedSub.leaseItemUnitId!)) {
-                      try {
-                        debugPrint('--> [CREATE LEASE STEP 4] Upserting "lease_item_units": unit = ${updatedSub.leaseItemUnitId}');
-                        await _client.from('lease_item_units').upsert({
-                          'id': UuidGenerator.generateV4(),
-                          'lease_id': created.id,
-                          'lease_item_id': savedLine.id,
-                          'inventory_unit_id': updatedSub.leaseItemUnitId,
-                          'checked_out_at': created.startTime.toIso8601String(),
-                          'inspection_status': 'rented',
-                        }, onConflict: 'lease_item_id,inventory_unit_id');
-                        debugPrint('--> [CREATE LEASE STEP 4 SUCCESS] lease_item_units upserted for unit ${updatedSub.leaseItemUnitId}');
-                      } catch (unitLinkErr) {
-                        debugPrint('--> [CREATE LEASE STEP 4 WARNING] lease_item_units warning: $unitLinkErr');
-                      }
-
-                      try {
-                        debugPrint('--> [CREATE LEASE STEP 5] Updating "inventory_units" status to "rented": ID = ${updatedSub.leaseItemUnitId}');
-                        await _client
-                            .from('inventory_units')
-                            .update({'status': 'rented'})
-                            .eq('id', updatedSub.leaseItemUnitId!);
-                        debugPrint('--> [CREATE LEASE STEP 5 SUCCESS] inventory_units updated to rented for ${updatedSub.leaseItemUnitId}');
-                      } catch (unitErr) {
-                        debugPrint('--> [CREATE LEASE STEP 5 WARNING] inventory_units update warning: $unitErr');
-                      }
-                    }
-
-                    if (!updatedSub.isExcluded && updatedSub.inventoryComponentUnitId != null && updatedSub.inventoryComponentUnitId!.isNotEmpty) {
-                      try {
-                        debugPrint('--> [CREATE LEASE STEP 5b] Updating "inventory_component_units" status to "rented": ID = ${updatedSub.inventoryComponentUnitId}');
-                        await _client
-                            .from('inventory_component_units')
-                            .update({'status': 'rented'})
-                            .eq('id', updatedSub.inventoryComponentUnitId!);
-                        debugPrint('--> [CREATE LEASE STEP 5b SUCCESS] inventory_component_units updated to rented for ${updatedSub.inventoryComponentUnitId}');
-                      } catch (compErr) {
-                        debugPrint('--> [CREATE LEASE STEP 5b WARNING] inventory_component_units update warning: $compErr');
-                      }
-                    }
-                  } catch (subErr) {
-                    debugPrint('--> [CREATE LEASE STEP 3 ERROR] leased_sub_items insert error: $subErr');
-                    savedSubItems.add(updatedSub);
-                  }
+                  debugPrint('--> [CREATE LEASE STEP 2.6] Updating "inventory_units" status to rented: ID = $unitPK');
+                  await _client
+                      .from('inventory_units')
+                      .update({'status': 'rented'})
+                      .eq('id', unitPK);
+                  debugPrint('--> [CREATE LEASE STEP 2.6 SUCCESS] inventory_units status set to rented for $unitPK');
                 }
               }
 
-              savedLineItems.add(savedLine.copyWith(
-                item: line.item,
-                leasedSubItems: savedSubItems.isNotEmpty ? savedSubItems : line.leasedSubItems,
-              ));
-            } catch (lineErr) {
-              debugPrint('--> [CREATE LEASE STEP 2 ERROR] line item insert error: $lineErr');
-              savedLineItems.add(line);
+              for (final sub in line.leasedSubItems) {
+                final updatedSub = sub.copyWith(
+                  leaseId: created.id,
+                  leaseItemId: savedLine.id,
+                  storeId: user.id,
+                );
+                final subPayload = updatedSub.toDatabaseJson();
+
+                debugPrint('--> [CREATE LEASE STEP 3] Inserting sub-item into "leased_sub_items" table: ID = ${sub.id}');
+                final subRes = await _client.from('leased_sub_items').upsert(subPayload).select().single();
+                final savedSub = LeasedSubItemModel.fromJson(subRes).copyWith(
+                  leaseItemUnitId: updatedSub.leaseItemUnitId,
+                  inventoryComponentUnitId: updatedSub.inventoryComponentUnitId,
+                  isExcluded: updatedSub.isExcluded,
+                );
+                savedSubItems.add(savedSub);
+                debugPrint('--> [CREATE LEASE STEP 3 SUCCESS] Sub-item inserted: ID = ${savedSub.id}');
+
+                if (!updatedSub.isExcluded && updatedSub.inventoryComponentUnitId != null && updatedSub.inventoryComponentUnitId!.isNotEmpty) {
+                  debugPrint('--> [CREATE LEASE STEP 3b] Updating "inventory_component_units" status to "rented": ID = ${updatedSub.inventoryComponentUnitId}');
+                  await _client
+                      .from('inventory_component_units')
+                      .update({'status': 'rented'})
+                      .eq('id', updatedSub.inventoryComponentUnitId!);
+                  debugPrint('--> [CREATE LEASE STEP 3b SUCCESS] inventory_component_units updated to rented for ${updatedSub.inventoryComponentUnitId}');
+                }
+              }
             }
+
+            savedLineItems.add(savedLine.copyWith(
+              item: line.item,
+              leasedSubItems: savedSubItems.isNotEmpty ? savedSubItems : line.leasedSubItems,
+            ));
           }
         }
 
@@ -301,6 +284,17 @@ class LeaseRepository {
         return fullLease;
       } catch (e) {
         debugPrint('LeaseRepository.createLease error: $e');
+        // Atomic Rollback: Delete master lease record if any step fails
+        if (insertedLeaseId != null) {
+          try {
+            debugPrint('--> [ROLLBACK] Deleting incomplete lease record: $insertedLeaseId');
+            await _client.from('leases').delete().eq('id', insertedLeaseId);
+            debugPrint('--> [ROLLBACK SUCCESS] Incomplete lease record deleted.');
+          } catch (rollbackErr) {
+            debugPrint('--> [ROLLBACK ERROR] Failed to rollback lease record: $rollbackErr');
+          }
+        }
+
         if (e.toString().contains('leases_status_check') && lease.status == 'reserved') {
           try {
             final retryLease = lease.copyWith(status: 'upcoming');
@@ -418,6 +412,41 @@ class LeaseRepository {
               debugPrint('LeaseRepository.returnAndSettleLease line item update warning: $lineErr');
             }
           }
+        }
+
+        // Sync physical asset states back to available for all assigned physical units in lease_item_units
+        try {
+          final unitAssignments = await _client
+              .from('lease_item_units')
+              .select('inventory_unit_id')
+              .eq('lease_id', updated.id);
+
+          for (final assignment in unitAssignments as List) {
+            final unitId = assignment['inventory_unit_id'] as String?;
+            if (unitId != null && unitId.isNotEmpty) {
+              await _client
+                  .from('inventory_units')
+                  .update({'status': 'available'})
+                  .eq('id', unitId);
+
+              await _client
+                  .from('inventory_component_units')
+                  .update({'status': 'available'})
+                  .eq('inventory_unit_id', unitId);
+
+              await _client
+                  .from('lease_item_units')
+                  .update({
+                    'returned_at': (updated.actualReturnTime ?? DateTime.now()).toIso8601String(),
+                    'inspection_status': 'inspected_good',
+                  })
+                  .eq('lease_id', updated.id)
+                  .eq('inventory_unit_id', unitId);
+              debugPrint('--> [SETTLE UNIT SYNC SUCCESS] Unit $unitId restored to available');
+            }
+          }
+        } catch (uSyncErr) {
+          debugPrint('--> [SETTLE UNIT SYNC WARNING] lease_item_units sync warning: $uSyncErr');
         }
 
         final index = _leases.indexWhere((l) => l.id == updated.id);

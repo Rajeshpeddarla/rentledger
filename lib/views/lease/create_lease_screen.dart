@@ -270,6 +270,8 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   }
 
   Future<void> _pickPhoto() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+
     if (_beforePhotos.length >= 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -332,6 +334,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       final capturedFile = await Navigator.of(context).push<File>(
         MaterialPageRoute(builder: (_) => const InAppCameraScreen()),
       );
+      FocusManager.instance.primaryFocus?.unfocus();
       if (capturedFile != null) {
         setState(() {
           _beforePhotos.add(capturedFile);
@@ -346,6 +349,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
           maxHeight: 800,
           imageQuality: 70,
         );
+        FocusManager.instance.primaryFocus?.unfocus();
         if (picked != null) {
           setState(() {
             _beforePhotos.add(File(picked.path));
@@ -403,10 +407,16 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       final store = storeState is StoreLoaded ? storeState.store : null;
       if (store == null) throw Exception('Store not initialized');
 
-      // 1. Resolve or create customer
+      // 1. Resolve or create customer with clean trimmed name and phone
       CustomerModel customer;
+      final cleanName = _customerNameController.text.trim();
+      final cleanPhone = _customerPhoneController.text.trim();
+      final cleanEmail = _customerEmailController.text.trim();
+
       if (_selectedCustomer != null) {
         customer = _selectedCustomer!.copyWith(
+          name: _selectedCustomer!.name.trim(),
+          phone: _selectedCustomer!.phone.trim(),
           totalLeasesCount: _selectedCustomer!.totalLeasesCount + 1,
           updatedAt: DateTime.now(),
         );
@@ -415,9 +425,9 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
         customer = CustomerModel(
           id: UuidGenerator.generateV4(),
           storeId: store.id,
-          name: _customerNameController.text.trim(),
-          phone: _customerPhoneController.text.trim(),
-          email: _customerEmailController.text.trim().isNotEmpty ? _customerEmailController.text.trim() : null,
+          name: cleanName,
+          phone: cleanPhone,
+          email: cleanEmail.isNotEmpty ? cleanEmail : null,
           totalLeasesCount: 1,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
@@ -743,7 +753,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
         backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1936,7 +1946,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
     }
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -2182,10 +2192,6 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                   SizedBox(width: 6),
                   Text('Condition Proof ("Before")', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                 ],
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_a_photo_outlined, color: AppColors.primary, size: 20),
-                onPressed: _pickPhoto,
               ),
             ],
           ),

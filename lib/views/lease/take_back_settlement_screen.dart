@@ -117,7 +117,22 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
               if (c.replacementCost > 0) {
                 _compUnitCostMap[c.id] = c.replacementCost;
                 _compUnitCostMap[c.componentName] = c.replacementCost;
+                _compUnitCostMap[c.componentName.trim().toLowerCase()] = c.replacementCost;
               }
+            }
+          }
+          _updateAutoDamageFee();
+        });
+      }
+    });
+
+    InventoryUnitRepository().getDefinitionsForProduct(widget.lease.itemId).then((defs) {
+      if (mounted && defs.isNotEmpty) {
+        setState(() {
+          for (final d in defs) {
+            if (d.replacementCost > 0) {
+              _compUnitCostMap[d.componentName] = d.replacementCost;
+              _compUnitCostMap[d.componentName.trim().toLowerCase()] = d.replacementCost;
             }
           }
           _updateAutoDamageFee();
@@ -327,14 +342,25 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
               final incidentType = st == 'lost' ? 'lost' : 'damaged';
               final cost = _resolveComponentReplacementCost(sub);
 
-              // Satisfy DB constraint: exactly one of inventory_unit_id or inventory_component_unit_id must be NOT NULL
-              final String? compUnitId = (sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty)
+              // Satisfy DB constraint check_exactly_one_asset_ref: exactly one of inventory_unit_id or inventory_component_unit_id must be NOT NULL
+              String? compUnitId = (sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty)
                   ? sub.inventoryComponentUnitId
                   : null;
 
-              final String? unitId = compUnitId == null
-                  ? (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty ? sub.leaseItemUnitId : null)
+              String? unitId = compUnitId == null
+                  ? ((sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty) ? sub.leaseItemUnitId : null)
                   : null;
+
+              // Fallback to guarantee exactly one non-null reference
+              if (compUnitId == null && unitId == null) {
+                if (sub.subItemId.isNotEmpty) {
+                  compUnitId = sub.subItemId;
+                } else if (sub.id.isNotEmpty) {
+                  compUnitId = sub.id;
+                } else {
+                  unitId = line.itemId.isNotEmpty ? line.itemId : settled.id;
+                }
+              }
 
               try {
                 final incident = DamageLossIncidentModel(
@@ -1275,7 +1301,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
       }
       if (repCost <= 0) {
         final name = sub is LeasedSubItemModel ? sub.itemName : (sub as SubItemModel).name;
-        repCost = _compUnitCostMap[name] ?? 0.0;
+        repCost = _compUnitCostMap[name] ?? _compUnitCostMap[name.trim().toLowerCase()] ?? 0.0;
       }
     }
 
@@ -1290,7 +1316,6 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
     for (int i = 0; i < itemsCount; i++) {
       final lineItem = hasLineItems ? widget.lease.leaseItems[i] : null;
       final key = lineItem?.id ?? widget.lease.itemId;
-      final mainSt = _itemStatusMap[key] ?? 'available';
 
       final List<dynamic> subItemsList = lineItem != null && lineItem.leasedSubItems.isNotEmpty
           ? lineItem.leasedSubItems
@@ -1303,15 +1328,9 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
           final subSt = _subItemStatusMap[subId] ?? 'available';
           if (subSt == 'maintenance' || subSt == 'lost') {
             final double repCost = _resolveComponentReplacementCost(sub);
-            final cost = repCost > 0 ? repCost : (subSt == 'lost' ? 1500.0 : 500.0);
-            totalEstDamageCost += cost;
+            totalEstDamageCost += repCost;
           }
         }
-      }
-
-      if (subItemsList.isEmpty && (mainSt == 'maintenance' || mainSt == 'lost')) {
-        final cost = mainSt == 'lost' ? 1500.0 : 500.0;
-        totalEstDamageCost += cost;
       }
     }
 

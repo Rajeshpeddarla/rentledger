@@ -23,13 +23,20 @@ import '../profile/subscription_paywall_screen.dart';
 import '../lease/in_app_camera_screen.dart';
 
 class ComponentDefinitionInput {
+  final String id;
   final TextEditingController nameCtrl;
   final TextEditingController qtyCtrl;
   final TextEditingController costCtrl;
   bool isRequired;
 
-  ComponentDefinitionInput({String name = '', int qty = 1, double cost = 0.0, this.isRequired = true})
-      : nameCtrl = TextEditingController(text: name),
+  ComponentDefinitionInput({
+    String? id,
+    String name = '',
+    int qty = 1,
+    double cost = 0.0,
+    this.isRequired = true,
+  })  : id = id ?? UuidGenerator.generateV4(),
+        nameCtrl = TextEditingController(text: name),
         qtyCtrl = TextEditingController(text: '$qty'),
         costCtrl = TextEditingController(text: cost > 0 ? cost.toStringAsFixed(0) : '');
 
@@ -101,9 +108,12 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   // Rate calculation mode: 'auto' vs 'manual'
   String _rateMode = 'auto';
 
-  // Manual override tracking flags
-  bool _isWeeklyManuallyEdited = false;
-  bool _isMonthlyManuallyEdited = false;
+  // Component Form Input Controllers
+  final TextEditingController _formCompNameController = TextEditingController();
+  final TextEditingController _formCompQtyController = TextEditingController(text: '1');
+  final TextEditingController _formCompCostController = TextEditingController();
+  int? _editingCompIndex;
+
 
   @override
   void initState() {
@@ -138,9 +148,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   }
 
   void _addDefaultComponentTemplates() {
-    _componentDefInputs.add(
-      ComponentDefinitionInput(name: 'Main Body', qty: 1, isRequired: true),
-    );
+    // Empty by default - user explicitly adds components using the form below
   }
 
   Future<void> _loadExistingDefinitions(String productId) async {
@@ -152,8 +160,10 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           for (final d in defs) {
             _componentDefInputs.add(
               ComponentDefinitionInput(
+                id: d.id,
                 name: d.componentName,
                 qty: d.defaultQuantity,
+                cost: d.replacementCost,
                 isRequired: d.isRequired,
               ),
             );
@@ -179,6 +189,9 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     _monthlyController.dispose();
     _taxRateController.dispose();
     _setsCountController.dispose();
+    _formCompNameController.dispose();
+    _formCompQtyController.dispose();
+    _formCompCostController.dispose();
     for (final c in _componentDefInputs) {
       c.dispose();
     }
@@ -321,6 +334,30 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   void _proceedToStep2() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (_componentDefInputs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Please add at least 1 default component before configuring physical sets.',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.errorRed,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _isGeneratingSets = true);
 
@@ -377,7 +414,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             ),
           );
         } else {
-          // Newly added physical set (format asset code sequentially in memory)
+          // Newly added physical set (format asset code sequentially starting from 0001 per equipment item)
           final assetCode = '$tag-${setNum.toString().padLeft(4, '0')}';
           _physicalSetInputs.add(
             PhysicalSetInput(
@@ -802,31 +839,46 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                   const Text('Component Quantities in this Set:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
                   const SizedBox(height: 8),
 
-                  ...setInput.componentQuantities.entries.map((entry) {
+                  ...setInput.componentQuantities.entries.toList().asMap().entries.map((compEntry) {
+                    final compIndex = compEntry.key;
+                    final entry = compEntry.value;
                     final compName = entry.key;
                     final currentQty = entry.value;
+
+                    final isMainComponent = compIndex == 0;
+                    final canDecrease = isMainComponent ? currentQty > 1 : currentQty > 0;
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text(compName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            child: Text(
+                              compName,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: isMainComponent ? FontWeight.bold : FontWeight.w600,
+                              ),
+                            ),
                           ),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                icon: Icon(
+                                  Icons.remove_circle_outline,
+                                  size: 20,
+                                  color: canDecrease ? null : Colors.grey.shade400,
+                                ),
                                 constraints: const BoxConstraints(),
                                 padding: const EdgeInsets.all(4),
-                                onPressed: () {
-                                  setState(() {
-                                    if (currentQty > 0) {
-                                      setInput.componentQuantities[compName] = currentQty - 1;
-                                    }
-                                  });
-                                },
+                                onPressed: canDecrease
+                                    ? () {
+                                        setState(() {
+                                          setInput.componentQuantities[compName] = currentQty - 1;
+                                        });
+                                      }
+                                    : null,
                               ),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -1180,6 +1232,55 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     );
   }
 
+  void _handleAddOrUpdateComponent() {
+    final name = _capitalizeFirstLetter(_formCompNameController.text);
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a component name.')),
+      );
+      return;
+    }
+
+    final qty = int.tryParse(_formCompQtyController.text.trim()) ?? 1;
+    final cost = double.tryParse(_formCompCostController.text.trim()) ?? 0.0;
+
+    setState(() {
+      if (_editingCompIndex != null && _editingCompIndex! < _componentDefInputs.length) {
+        // Update existing component in place
+        final existing = _componentDefInputs[_editingCompIndex!];
+        existing.nameCtrl.text = name;
+        existing.qtyCtrl.text = '$qty';
+        existing.costCtrl.text = cost > 0 ? cost.toStringAsFixed(0) : '';
+        _editingCompIndex = null;
+      } else {
+        // Add new component to list
+        _componentDefInputs.add(
+          ComponentDefinitionInput(
+            name: name,
+            qty: qty,
+            cost: cost,
+            isRequired: true,
+          ),
+        );
+      }
+
+      // Reset form input fields
+      _formCompNameController.clear();
+      _formCompQtyController.text = '1';
+      _formCompCostController.clear();
+    });
+  }
+
+  void _startEditingComponent(int index) {
+    final comp = _componentDefInputs[index];
+    setState(() {
+      _editingCompIndex = index;
+      _formCompNameController.text = comp.nameCtrl.text;
+      _formCompQtyController.text = comp.qtyCtrl.text;
+      _formCompCostController.text = comp.costCtrl.text;
+    });
+  }
+
   Widget _buildComponentDefinitionsCard(bool isDark) {
     final storeState = context.watch<StoreCubit>().state;
     final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
@@ -1194,22 +1295,8 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Default Components', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-              TextButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _componentDefInputs.add(ComponentDefinitionInput(name: '', qty: 1, isRequired: true));
-                  });
-                },
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Component', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
+          const Text('Default Components', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
           Text(
             'Standard accessories included in 1 physical set',
             style: TextStyle(
@@ -1217,174 +1304,223 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
               color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
+
+          // Component Input Form Container
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkSurfaceLow : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: isDark ? AppColors.darkBorder : Colors.grey.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _editingCompIndex != null ? 'Edit Component Details' : 'Add Component Details',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
+                ),
+                const SizedBox(height: 8),
+
+                // Field 1: Component Name
+                Text(
+                  'Component / Accessory Name',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                ),
+                const SizedBox(height: 4),
+                TextFormField(
+                  controller: _formCompNameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    hintText: 'e.g. 18V Battery, Fast Charger, Lens Cap',
+                    hintStyle: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.black38),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    fillColor: isDark ? AppColors.darkCard : Colors.white,
+                    filled: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Row 2: Default Quantity & Damage/Loss Fee per Piece
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Default Qty',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                          ),
+                          const SizedBox(height: 4),
+                          TextFormField(
+                            controller: _formCompQtyController,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            decoration: InputDecoration(
+                              hintText: '1',
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                              fillColor: isDark ? AppColors.darkCard : Colors.white,
+                              filled: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Damage/Loss Fee per Piece ($currency)',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                          ),
+                          const SizedBox(height: 4),
+                          TextFormField(
+                            controller: _formCompCostController,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              prefixText: '$currency ',
+                              hintText: '1500',
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                              fillColor: isDark ? AppColors.darkCard : Colors.white,
+                              filled: true,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Form Action Button (Placed below damage/loss fee text field)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _handleAddOrUpdateComponent,
+                    icon: Icon(_editingCompIndex != null ? Icons.save_outlined : Icons.add, size: 16),
+                    label: Text(
+                      _editingCompIndex != null ? 'Update Component' : 'Add Component',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Added Components List (Rendered BELOW form & button)
+          Text(
+            'Configured Component List (${_componentDefInputs.length})',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
 
           ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: _componentDefInputs.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 12),
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final comp = _componentDefInputs[index];
+              final isEditingThis = _editingCompIndex == index;
 
               return Container(
+                key: ValueKey(comp.id),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkCard : Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  color: isEditingThis
+                      ? AppColors.primary.withValues(alpha: 0.1)
+                      : (isDark ? AppColors.darkCard : Colors.white),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isEditingThis
+                        ? AppColors.primary
+                        : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    width: isEditingThis ? 1.5 : 1.0,
+                  ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    // Header Bar: Accessory Badge + Required Checkbox + Delete Icon
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Accessory #${index + 1}',
-                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: () {
-                                setState(() {
-                                  comp.isRequired = !comp.isRequired;
-                                });
-                              },
-                              borderRadius: BorderRadius.circular(6),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      comp.isRequired ? Icons.check_box : Icons.check_box_outline_blank,
-                                      size: 16,
-                                      color: comp.isRequired ? AppColors.primary : Colors.grey,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Required',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: comp.isRequired ? (isDark ? Colors.white : AppColors.lightOnSurface) : Colors.grey,
-                                      ),
-                                    ),
-                                  ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Accessory #${index + 1}',
+                                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.primary),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        if (index > 0)
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                            constraints: const BoxConstraints(),
-                            padding: const EdgeInsets.all(4),
-                            tooltip: 'Remove Component',
-                            onPressed: () {
-                              setState(() {
-                                _componentDefInputs.removeAt(index);
-                              });
-                            },
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  comp.nameCtrl.text.isNotEmpty ? comp.nameCtrl.text : 'Component',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Field 1: Component Name (Full Width with Static Title)
-                    Text(
-                      'Component / Accessory Name',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                    ),
-                    const SizedBox(height: 4),
-                    TextFormField(
-                      controller: comp.nameCtrl,
-                      textCapitalization: TextCapitalization.words,
-                      decoration: InputDecoration(
-                        hintText: 'e.g. 18V Battery, Fast Charger, Lens Cap',
-                        hintStyle: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.black38),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
-                        filled: true,
+                          const SizedBox(height: 4),
+                          Text(
+                            'Qty: ${comp.qtyCtrl.text} • Damage/Loss Fee: $currency${comp.costCtrl.text.isNotEmpty ? comp.costCtrl.text : "0"}',
+                            style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 10),
 
-                    // Row 2: Default Quantity & Damage/Loss Fee
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 1,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Default Qty',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                              ),
-                              const SizedBox(height: 4),
-                              TextFormField(
-                                controller: comp.qtyCtrl,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                decoration: InputDecoration(
-                                  hintText: '1',
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                                  fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
-                                  filled: true,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Damage / Loss Fee ($currency)',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                              ),
-                              const SizedBox(height: 4),
-                              TextFormField(
-                                controller: comp.costCtrl,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  prefixText: '$currency ',
-                                  hintText: '1500',
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                                  fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
-                                  filled: true,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                    // Actions: Edit (All items) + Delete (Only for index > 0)
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, color: AppColors.primary, size: 20),
+                      constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(4),
+                      tooltip: 'Edit Component',
+                      onPressed: () => _startEditingComponent(index),
                     ),
+                    if (index > 0) ...[
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.all(4),
+                        tooltip: 'Remove Component',
+                        onPressed: () {
+                          setState(() {
+                            if (_editingCompIndex == index) {
+                              _editingCompIndex = null;
+                              _formCompNameController.clear();
+                              _formCompQtyController.text = '1';
+                              _formCompCostController.clear();
+                            }
+                            _componentDefInputs.removeAt(index);
+                          });
+                        },
+                      ),
+                    ],
                   ],
                 ),
               );

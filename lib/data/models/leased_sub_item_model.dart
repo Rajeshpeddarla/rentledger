@@ -93,6 +93,8 @@ class LeasedSubItemModel extends Equatable {
       'id': id,
       'lease_id': leaseId,
       'lease_item_id': leaseItemId,
+      if (leaseItemUnitId != null && leaseItemUnitId!.isNotEmpty) 'lease_item_unit_id': leaseItemUnitId,
+      if (inventoryComponentUnitId != null && inventoryComponentUnitId!.isNotEmpty) 'inventory_component_unit_id': inventoryComponentUnitId,
       'sub_item_id': subItemId,
       'item_id': itemId,
       'store_id': storeId,

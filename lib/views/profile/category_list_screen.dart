@@ -323,14 +323,15 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
 
                 if (categories.isEmpty) {
                   return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             Icons.category_outlined,
-                            size: 48,
+                            size: 44,
                             color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                           ),
                           const SizedBox(height: 12),

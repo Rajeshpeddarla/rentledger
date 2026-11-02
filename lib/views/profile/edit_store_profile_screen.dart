@@ -491,7 +491,7 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
                       controller: _storePhoneCtrl,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
-                        hintText: '+91 9876543210',
+                        hintText: '9876543210',
                         prefixIcon: Icon(Icons.phone_outlined),
                       ),
                     ),
@@ -794,7 +794,7 @@ class _EditStoreProfileScreenState extends State<EditStoreProfileScreen> {
                       controller: _ownerPhoneCtrl,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
-                        hintText: '+91 9999888877',
+                        hintText: '9999888877',
                         prefixIcon: Icon(Icons.phone_android_outlined),
                       ),
                     ),
