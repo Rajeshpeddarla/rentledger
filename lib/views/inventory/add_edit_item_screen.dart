@@ -138,11 +138,15 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
     final catState = context.read<CategoryCubit>().state;
     final List<String> loadedCatNames = catState is CategoryLoaded
-        ? catState.categoryNames.where((n) => n.trim().isNotEmpty).toList()
+        ? catState.categoryNames.where((n) => n.trim().isNotEmpty && n.trim().toLowerCase() != 'general').toList()
         : <String>[];
 
-    final defaultCategory = loadedCatNames.isNotEmpty ? loadedCatNames.first : 'General';
-    _selectedCategory = item?.category ?? defaultCategory;
+    final defaultCategory = loadedCatNames.isNotEmpty ? loadedCatNames.first : '';
+    _selectedCategory = (item?.category != null &&
+            item!.category.trim().isNotEmpty &&
+            item.category.trim().toLowerCase() != 'general')
+        ? item.category
+        : defaultCategory;
     _imageUrl = item?.imageR2Url;
 
     _setsCountController = TextEditingController(text: '${item?.totalQuantity ?? 1}');
@@ -1119,19 +1123,17 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       return trimmed.endsWith('s') ? trimmed.substring(0, trimmed.length - 1) : trimmed;
     }
 
-    final List<String> pickerCategories = List<String>.from(categoryNames);
+    final List<String> pickerCategories = List<String>.from(categoryNames)
+        .where((c) => c.trim().isNotEmpty && c.trim().toLowerCase() != 'general')
+        .toList();
 
-    if (_selectedCategory.trim().isNotEmpty) {
+    if (_selectedCategory.trim().isNotEmpty && _selectedCategory.trim().toLowerCase() != 'general') {
       final matchingCategory = pickerCategories.where((c) => normalize(c) == normalize(_selectedCategory)).firstOrNull;
       if (matchingCategory != null) {
         _selectedCategory = matchingCategory;
       } else if (!pickerCategories.any((c) => c.toLowerCase() == _selectedCategory.toLowerCase())) {
         pickerCategories.insert(0, _selectedCategory);
       }
-    }
-
-    if (pickerCategories.isEmpty) {
-      pickerCategories.addAll(['Cameras', 'Lenses', 'Lighting', 'Audio', 'Drones', 'General']);
     }
 
     showModalBottomSheet(
@@ -1181,61 +1183,83 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.45,
-                ),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: pickerCategories.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    final cat = pickerCategories[index];
-                    final isSelected = cat.trim().toLowerCase() == _selectedCategory.trim().toLowerCase();
+              if (pickerCategories.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.category_outlined, size: 40, color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No Categories Configured for Your Store',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Tap "Manage" above to add your first category in Store Settings.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.45,
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: pickerCategories.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 6),
+                    itemBuilder: (context, index) {
+                      final cat = pickerCategories[index];
+                      final isSelected = cat.trim().toLowerCase() == _selectedCategory.trim().toLowerCase();
 
-                    return InkWell(
-                      onTap: () {
-                        setState(() {
-                          _selectedCategory = cat;
-                        });
-                        Navigator.pop(ctx);
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? (isDark ? AppColors.primaryLight.withValues(alpha: 0.15) : AppColors.primary.withValues(alpha: 0.08))
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
+                      return InkWell(
+                        onTap: () {
+                          setState(() {
+                            _selectedCategory = cat;
+                          });
+                          Navigator.pop(ctx);
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
                             color: isSelected
-                                ? AppColors.primary
-                                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                                ? (isDark ? AppColors.primaryLight.withValues(alpha: 0.15) : AppColors.primary.withValues(alpha: 0.08))
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.primary
+                                  : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                cat,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: isSelected
+                                      ? (isDark ? AppColors.primaryLight : AppColors.primary)
+                                      : (isDark ? Colors.white : AppColors.lightOnSurface),
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(Icons.check_circle, color: AppColors.primary, size: 18),
+                            ],
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              cat,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                color: isSelected
-                                    ? (isDark ? AppColors.primaryLight : AppColors.primary)
-                                    : (isDark ? Colors.white : AppColors.lightOnSurface),
-                              ),
-                            ),
-                            if (isSelected)
-                              const Icon(Icons.check_circle, color: AppColors.primary, size: 18),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
-              ),
             ],
           ),
         );
@@ -1249,9 +1273,11 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         ? categoryState.categoryNames
         : <String>[];
 
-    final String displayCategory = _selectedCategory.trim().isNotEmpty
+    final String displayCategory = (_selectedCategory.trim().isNotEmpty && _selectedCategory.trim().toLowerCase() != 'general')
         ? _selectedCategory
-        : (categoryNames.isNotEmpty ? categoryNames.first : 'General');
+        : (categoryNames.where((n) => n.trim().isNotEmpty && n.trim().toLowerCase() != 'general').isNotEmpty
+            ? categoryNames.where((n) => n.trim().isNotEmpty && n.trim().toLowerCase() != 'general').first
+            : 'No Category Configured');
 
     return Container(
       padding: const EdgeInsets.all(14),

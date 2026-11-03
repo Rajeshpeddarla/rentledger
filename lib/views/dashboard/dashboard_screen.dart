@@ -15,7 +15,9 @@ import '../../viewmodels/lease/lease_state.dart';
 import '../../viewmodels/theme/theme_cubit.dart';
 import '../analytics/store_performance_screen.dart';
 import '../inventory/add_edit_item_screen.dart';
+import '../lease/cancel_reservation_screen.dart';
 import '../lease/create_lease_screen.dart';
+import '../lease/future_reservations_screen.dart';
 import '../lease/take_back_settlement_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -59,7 +61,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               // 3. Operations Telemetry KPI 2x2 Grid
               _buildTelemetryGrid(context, isDark),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+
+              // 3.5. Today's Reservation Pickup Reminder Banner
+              _buildTodayReservationAlertBanner(context, isDark),
+
+              // 3.8. Upcoming Future Reservations Horizontal Strip
+              _buildUpcomingReservationsStrip(context, isDark),
 
               // 4. Mini Calendar Week Strip (Weekly Rental Status)
               _buildWeeklyRhythmStrip(context, isDark),
@@ -515,6 +523,265 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTodayReservationAlertBanner(BuildContext context, bool isDark) {
+    final leaseState = context.watch<LeaseCubit>().state;
+    final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    final todayPickups = allLeases.where((l) {
+      if (l.status != 'reserved' && l.status != 'upcoming') return false;
+      final st = DateTime(l.startTime.year, l.startTime.month, l.startTime.day);
+      return st.isAtSameMomentAs(today);
+    }).toList();
+
+    if (todayPickups.isEmpty) return const SizedBox.shrink();
+
+    final firstPickup = todayPickups.first;
+    final custName = firstPickup.customer?.name ?? 'Client';
+    final timeStr = DateFormat('hh:mm a').format(firstPickup.startTime);
+    final itemStr = firstPickup.itemNamesSummary;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF3B2E15) : const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isDark ? const Color(0xFF6B4E15) : const Color(0xFFFDE68A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_active_outlined, color: Colors.amber, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '🔔 Pickup Scheduled Today at $timeStr',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$custName is picking up $itemStr',
+                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FutureReservationsScreen()),
+              );
+            },
+            child: const Text('View ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpcomingReservationsStrip(BuildContext context, bool isDark) {
+    final leaseState = context.watch<LeaseCubit>().state;
+    final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
+
+    final storeState = context.watch<StoreCubit>().state;
+    final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
+
+    final upcomingList = allLeases.where((l) => l.isFutureReservation || l.status == 'reserved' || l.status == 'upcoming').toList();
+    upcomingList.sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    if (upcomingList.isEmpty) return const SizedBox.shrink();
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    final cardWidth = upcomingList.length == 1
+        ? (screenWidth - 32)
+        : (screenWidth * 0.83);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.event_seat_outlined, size: 18, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'Upcoming Reservations (${upcomingList.length})',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                  ),
+                ),
+              ],
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const FutureReservationsScreen()),
+                );
+              },
+              child: Text(
+                'View All ➔',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppColors.primaryLight : AppColors.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 150,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: upcomingList.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (ctx, idx) {
+              final lease = upcomingList[idx];
+              final advancePaid = lease.advanceRentPaid > 0 ? lease.advanceRentPaid : lease.depositPaid;
+              final custName = lease.customer?.name ?? 'Client';
+              final phone = lease.customer?.phone ?? '';
+
+              return Container(
+                width: cardWidth,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                custName,
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (phone.isNotEmpty)
+                                Text(
+                                  'Phone: $phone',
+                                  style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (phone.isNotEmpty)
+                          InkWell(
+                            onTap: () async {
+                              final cleanPhone = phone.replaceAll(RegExp(r'[^\d+]'), '');
+                              final Uri uri = Uri.parse('tel:$cleanPhone');
+                              if (await canLaunchUrl(uri)) await launchUrl(uri);
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: isDark ? AppColors.primary : const Color(0xFFA7F3D0)),
+                              ),
+                              child: Icon(
+                                Icons.phone_outlined,
+                                color: isDark ? AppColors.primaryLight : AppColors.primary,
+                                size: 16,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Equipment: ${lease.itemNamesSummary}',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Pick-up: ${DateFormat("dd MMM, hh:mm a").format(lease.startTime)}',
+                                style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                              ),
+                              if (advancePaid > 0)
+                                Text(
+                                  'Adv: $currency${advancePaid.toStringAsFixed(0)}',
+                                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const Spacer(),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () async {
+                            final res = await Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
+                            );
+                            if (res == true && mounted) {
+                              context.read<LeaseCubit>().loadLeases();
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.errorRed),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: const Text('Cancel Lease', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 

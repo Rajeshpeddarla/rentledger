@@ -162,7 +162,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
                       for (final it in inventoryLoaded.allItems) {
                         final c = it.category.trim();
-                        if (c.isNotEmpty && c.toLowerCase() != 'general') {
+                        if (c.isNotEmpty) {
                           final normC = c.toLowerCase().endsWith('s') ? c.substring(0, c.length - 1) : c;
                           final exists = loadedCategories.any((lc) {
                             final normLc = lc.toLowerCase().endsWith('s') ? lc.substring(0, lc.length - 1) : lc;
@@ -553,7 +553,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                               letterSpacing: 0.5,
                             ),
                           ),
-                          if (item.category.trim().isNotEmpty && item.category.trim().toLowerCase() != 'general') ...[
+                          if (item.category.trim().isNotEmpty) ...[
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
@@ -629,20 +629,20 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       if (item.maintenanceCount > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(color: const Color(0xFFFFF6E5), borderRadius: BorderRadius.circular(4)),
-                          child: Text('${item.maintenanceCount} Repair', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
+                          decoration: BoxDecoration(color: isDark ? const Color(0xFF3B2314) : const Color(0xFFFFF6E5), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.maintenanceCount} In Maintenance', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade800)),
                         ),
                       if (item.reservedCount > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(4)),
+                          decoration: BoxDecoration(color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(4)),
                           child: Text('${item.reservedCount} Reserved', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.secondary)),
                         ),
                       if (item.lostCount > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(color: const Color(0xFFFFDAD6), borderRadius: BorderRadius.circular(4)),
-                          child: Text('${item.lostCount} Lost', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                          decoration: BoxDecoration(color: isDark ? const Color(0xFF31123F) : const Color(0xFFF3E8FF), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.lostCount} Needed Restock', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isDark ? Colors.purple.shade200 : Colors.purple.shade800)),
                         ),
                     ],
                   ),

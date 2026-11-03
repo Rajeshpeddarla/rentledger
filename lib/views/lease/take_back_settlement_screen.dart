@@ -269,7 +269,8 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
           final st = _itemStatusMap[line.id] ?? 'available';
           final updatedSubItems = line.leasedSubItems.map((sub) {
             final subSt = _subItemStatusMap[sub.id] ?? 'available';
-            return sub.copyWith(conditionStatus: subSt);
+            final dbSt = (subSt == 'maintenance' || subSt == 'damaged') ? 'in_maintenance' : subSt;
+            return sub.copyWith(conditionStatus: dbSt);
           }).toList();
 
           return line.copyWith(

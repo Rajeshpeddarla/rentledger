@@ -80,14 +80,44 @@ class InventoryRepository {
           }
         }
 
+        // 3. Query inventory_units table for realtime maintenance, in_maintenance, lost, and needed_restock counts per item
+        final Map<String, int> maintenanceCounts = {};
+        final Map<String, int> lostCounts = {};
+
+        try {
+          final unitStatusData = await _client
+              .from('inventory_units')
+              .select('inventory_item_id, status')
+              .eq('store_id', user.id)
+              .inFilter('status', ['maintenance', 'damaged', 'in_maintenance', 'lost', 'needed_restock']);
+
+          for (final row in (unitStatusData as List)) {
+            final iId = row['inventory_item_id'] as String?;
+            final st = (row['status'] as String? ?? '').toLowerCase();
+            if (iId != null) {
+              if (st == 'maintenance' || st == 'damaged' || st == 'in_maintenance') {
+                maintenanceCounts[iId] = (maintenanceCounts[iId] ?? 0) + 1;
+              } else if (st == 'lost' || st == 'needed_restock') {
+                lostCounts[iId] = (lostCounts[iId] ?? 0) + 1;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('InventoryRepository unit status count error: $e');
+        }
+
         final list = (data as List)
             .map((e) {
               final it = InventoryItemModel.fromJson(e as Map<String, dynamic>);
               final activeCount = activeCounts[it.id] ?? 0;
               final reservedCount = reservedCounts[it.id] ?? 0;
+              final maintCount = maintenanceCounts[it.id] ?? 0;
+              final lstCount = lostCounts[it.id] ?? 0;
               return it.copyWith(
                 activeLeasesCount: activeCount,
                 reservedCount: reservedCount,
+                maintenanceCount: maintCount,
+                lostCount: lstCount,
               );
             })
             .toList();

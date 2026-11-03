@@ -218,10 +218,11 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   }
 
   Future<void> _selectEndDateTime() async {
+    final initialPickerDate = _expectedEndTime.isBefore(_startTime) ? _startTime : _expectedEndTime;
     final pickedDate = await showDatePicker(
       context: context,
-      initialDate: _expectedEndTime.isBefore(_startTime) ? _startTime : _expectedEndTime,
-      firstDate: _startTime,
+      initialDate: initialPickerDate,
+      firstDate: DateTime(_startTime.year, _startTime.month, _startTime.day),
       lastDate: DateTime.now().add(const Duration(days: 180)),
     );
     if (pickedDate == null) return;
@@ -234,14 +235,27 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
 
     final selectedTime = pickedTime ?? TimeOfDay.fromDateTime(_expectedEndTime);
 
+    DateTime newEndTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+
+    // If return time is on or before start time (e.g. overnight rental 10:30 PM -> 1:00 AM), advance date to next day
+    if (!newEndTime.isAfter(_startTime)) {
+      if (pickedDate.year == _startTime.year &&
+          pickedDate.month == _startTime.month &&
+          pickedDate.day == _startTime.day) {
+        newEndTime = newEndTime.add(const Duration(days: 1));
+      } else {
+        newEndTime = _startTime.add(const Duration(hours: 1));
+      }
+    }
+
     setState(() {
-      _expectedEndTime = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        selectedTime.hour,
-        selectedTime.minute,
-      );
+      _expectedEndTime = newEndTime;
     });
     _validateConflict();
   }
@@ -382,6 +396,16 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select at least one equipment item to rent out.'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
+    if (!_expectedEndTime.isAfter(_startTime)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Expected return time must be strictly after handover start time.'),
           backgroundColor: AppColors.errorRed,
         ),
       );

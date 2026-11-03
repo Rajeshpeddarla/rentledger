@@ -264,12 +264,14 @@ class LeaseRepository {
                   });
                   debugPrint('--> [CREATE LEASE STEP 2.5 SUCCESS] lease_item_units row created for unit $unitPK');
 
-                  debugPrint('--> [CREATE LEASE STEP 2.6] Updating "inventory_units" status to rented: ID = $unitPK');
-                  await _client
-                      .from('inventory_units')
-                      .update({'status': 'rented'})
-                      .eq('id', unitPK);
-                  debugPrint('--> [CREATE LEASE STEP 2.6 SUCCESS] inventory_units status set to rented for $unitPK');
+                  if (created.status == 'active') {
+                    debugPrint('--> [CREATE LEASE STEP 2.6] Updating "inventory_units" status to rented: ID = $unitPK');
+                    await _client
+                        .from('inventory_units')
+                        .update({'status': 'rented'})
+                        .eq('id', unitPK);
+                    debugPrint('--> [CREATE LEASE STEP 2.6 SUCCESS] inventory_units status set to rented for $unitPK');
+                  }
                 }
               }
 
@@ -291,7 +293,7 @@ class LeaseRepository {
                 savedSubItems.add(savedSub);
                 debugPrint('--> [CREATE LEASE STEP 3 SUCCESS] Sub-item inserted: ID = ${savedSub.id}');
 
-                if (!updatedSub.isExcluded && updatedSub.inventoryComponentUnitId != null && updatedSub.inventoryComponentUnitId!.isNotEmpty) {
+                if (created.status == 'active' && !updatedSub.isExcluded && updatedSub.inventoryComponentUnitId != null && updatedSub.inventoryComponentUnitId!.isNotEmpty) {
                   debugPrint('--> [CREATE LEASE STEP 3b] Updating "inventory_component_units" status to "rented": ID = ${updatedSub.inventoryComponentUnitId}');
                   await _client
                       .from('inventory_component_units')
@@ -533,5 +535,97 @@ class LeaseRepository {
       _leases.insert(0, updated);
     }
     return updated;
+  }
+
+  /// Cancel a reserved/active lease order, record refund notes, and release physical units
+  Future<void> cancelLease({
+    required String leaseId,
+    required String cancellationNotes,
+    required double refundAmount,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        await _client
+            .from('leases')
+            .update({
+              'status': 'cancelled',
+              'return_notes': cancellationNotes,
+              'final_settlement_balance': refundAmount,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', leaseId);
+
+        // Update line items return status
+        try {
+          await _client
+              .from('lease_items')
+              .update({'return_status': 'cancelled', 'updated_at': DateTime.now().toIso8601String()})
+              .eq('lease_id', leaseId);
+        } catch (_) {}
+
+        // Update lease_item_units inspection status
+        try {
+          await _client
+              .from('lease_item_units')
+              .update({'inspection_status': 'cancelled', 'returned_at': DateTime.now().toIso8601String()})
+              .eq('lease_id', leaseId);
+        } catch (_) {}
+
+        // Release physical units in inventory_units
+        try {
+          final unitsRes = await _client
+              .from('lease_item_units')
+              .select('inventory_unit_id')
+              .eq('lease_id', leaseId);
+
+          for (final row in (unitsRes as List)) {
+            final uId = row['inventory_unit_id'] as String?;
+            if (uId != null && uId.isNotEmpty) {
+              await _client
+                  .from('inventory_units')
+                  .update({'status': 'available', 'updated_at': DateTime.now().toIso8601String()})
+                  .eq('id', uId);
+            }
+          }
+        } catch (uErr) {
+          debugPrint('cancelLease release inventory_units warning: $uErr');
+        }
+
+        // Release component units in inventory_component_units
+        try {
+          final subCompsRes = await _client
+              .from('leased_sub_items')
+              .select('inventory_component_unit_id')
+              .eq('lease_id', leaseId);
+
+          for (final row in (subCompsRes as List)) {
+            final compId = row['inventory_component_unit_id'] as String?;
+            if (compId != null && compId.isNotEmpty) {
+              await _client
+                  .from('inventory_component_units')
+                  .update({'status': 'available', 'updated_at': DateTime.now().toIso8601String()})
+                  .eq('id', compId);
+            }
+          }
+        } catch (cErr) {
+          debugPrint('cancelLease release inventory_component_units warning: $cErr');
+        }
+
+        debugPrint('--> [CANCEL LEASE SUCCESS] Lease $leaseId cancelled successfully');
+      } catch (e) {
+        debugPrint('LeaseRepository.cancelLease error: $e');
+        throw Exception('Failed to cancel lease: $e');
+      }
+    }
+
+    final index = _leases.indexWhere((l) => l.id == leaseId);
+    if (index >= 0) {
+      _leases[index] = _leases[index].copyWith(
+        status: 'cancelled',
+        returnNotes: cancellationNotes,
+        finalSettlementBalance: refundAmount,
+      );
+    }
   }
 }

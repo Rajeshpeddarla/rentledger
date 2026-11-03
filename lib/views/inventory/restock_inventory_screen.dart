@@ -11,29 +11,17 @@ import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
 
-class RestockDisplayItem {
-  final String id; // unit id or component unit id
-  final String parentItemId;
+class RestockUnitGroup {
+  final InventoryUnitModel unit;
   final String parentItemName;
-  final String assetCode;
-  final String title; // "Physical Set #1 (CAM-0001)" or "18V Battery"
-  final String? serialNumber;
-  final double replacementCost;
-  final String currentStatus; // 'maintenance' (damaged) or 'lost'
-  final bool isWholeUnit; // true if whole unit is damaged/lost, false if individual component
-  final String? parentUnitId; // unit id if this is a component
+  final List<InventoryComponentUnitModel> affectedComponents;
+  final bool isWholeUnitDamagedOrLost;
 
-  RestockDisplayItem({
-    required this.id,
-    required this.parentItemId,
+  RestockUnitGroup({
+    required this.unit,
     required this.parentItemName,
-    required this.assetCode,
-    required this.title,
-    this.serialNumber,
-    required this.replacementCost,
-    required this.currentStatus,
-    required this.isWholeUnit,
-    this.parentUnitId,
+    required this.affectedComponents,
+    required this.isWholeUnitDamagedOrLost,
   });
 }
 
@@ -48,7 +36,7 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
   final SupabaseClient _client = Supabase.instance.client;
 
   String _selectedFilter = 'All'; // 'All', 'Damaged', 'Lost'
-  List<RestockDisplayItem> _restockItems = [];
+  List<RestockUnitGroup> _unitGroups = [];
   bool _isLoading = true;
 
   @override
@@ -67,64 +55,61 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
     }
 
     try {
-      final List<RestockDisplayItem> items = [];
-      final Set<String> wholeUnitIds = {};
+      final List<RestockUnitGroup> groups = [];
 
-      // 1. Fetch Whole Physical Units marked as Damaged (maintenance) or Lost
+      // 1. Fetch units that have status = maintenance, lost, in_maintenance, or needed_restock
+      // or contain component units with those exception statuses
       final unitRes = await _client
           .from('inventory_units')
-          .select('*, inventory_items(name)')
+          .select('*, inventory_items(name), inventory_component_units(*)')
           .eq('store_id', user.id)
-          .inFilter('status', ['maintenance', 'lost', 'damaged']);
+          .order('unit_number', ascending: true);
 
       for (final json in unitRes as List) {
         final u = InventoryUnitModel.fromJson(json as Map<String, dynamic>);
         final pName = json['inventory_items'] != null ? json['inventory_items']['name'] as String : 'Equipment Item';
-        wholeUnitIds.add(u.id);
 
-        items.add(RestockDisplayItem(
-          id: u.id,
-          parentItemId: u.inventoryItemId,
-          parentItemName: pName,
-          title: 'Physical Set #${u.unitNumber} (${u.assetCode})',
-          assetCode: u.assetCode,
-          replacementCost: 0.0,
-          currentStatus: u.status.toLowerCase() == 'damaged' ? 'maintenance' : u.status.toLowerCase(),
-          isWholeUnit: true,
-        ));
-      }
+        final unitSt = u.status.toLowerCase();
+        final bool isWholeUnitException = unitSt == 'maintenance' ||
+            unitSt == 'damaged' ||
+            unitSt == 'in_maintenance' ||
+            unitSt == 'lost' ||
+            unitSt == 'needed_restock';
 
-      // 2. Fetch Specific Component Units marked as Damaged or Lost
-      final compRes = await _client
-          .from('inventory_component_units')
-          .select('*, inventory_items(name)')
-          .eq('store_id', user.id)
-          .inFilter('status', ['maintenance', 'lost', 'damaged']);
+        // Filter affected sub-components
+        final List<InventoryComponentUnitModel> affectedComps = [];
 
-      for (final json in compRes as List) {
-        final c = InventoryComponentUnitModel.fromJson(json as Map<String, dynamic>);
-        final pName = json['inventory_items'] != null ? json['inventory_items']['name'] as String : 'Equipment Item';
+        if (isWholeUnitException) {
+          // If whole unit is damaged/lost, show all components of that unit
+          affectedComps.addAll(u.components);
+        } else {
+          // Only show components that are explicitly damaged, in_maintenance, lost, or needed_restock
+          for (final c in u.components) {
+            final cSt = c.status.toLowerCase();
+            if (cSt == 'maintenance' ||
+                cSt == 'damaged' ||
+                cSt == 'in_maintenance' ||
+                cSt == 'lost' ||
+                cSt == 'needed_restock') {
+              affectedComps.add(c);
+            }
+          }
+        }
 
-        // Only add component separately if its parent unit is NOT ALREADY listed as a whole unit
-        if (!wholeUnitIds.contains(c.inventoryUnitId)) {
-          items.add(RestockDisplayItem(
-            id: c.id,
-            parentItemId: c.inventoryItemId,
+        // Only include unit card if the unit itself is an exception OR has affected components
+        if (isWholeUnitException || affectedComps.isNotEmpty) {
+          groups.add(RestockUnitGroup(
+            unit: u,
             parentItemName: pName,
-            title: c.componentName,
-            serialNumber: c.serialNumber,
-            assetCode: c.assetCode,
-            replacementCost: c.replacementCost,
-            currentStatus: c.status.toLowerCase() == 'damaged' ? 'maintenance' : c.status.toLowerCase(),
-            isWholeUnit: false,
-            parentUnitId: c.inventoryUnitId,
+            affectedComponents: affectedComps,
+            isWholeUnitDamagedOrLost: isWholeUnitException,
           ));
         }
       }
 
       if (mounted) {
         setState(() {
-          _restockItems = items;
+          _unitGroups = groups;
           _isLoading = false;
         });
       }
@@ -134,88 +119,78 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
     }
   }
 
-  Future<void> _updateAssetStatus(RestockDisplayItem item, String newStatus) async {
+  Future<void> _updateComponentStatus(
+    InventoryComponentUnitModel comp,
+    String newStatus,
+    String parentItemId,
+  ) async {
     final user = _client.auth.currentUser;
     if (user == null) return;
 
     final storeState = context.read<StoreCubit>().state;
     final storeId = storeState is StoreLoaded ? storeState.store.id : user.id;
 
-    final targetDbStatus = (newStatus == 'damaged' || newStatus == 'maintenance') ? 'maintenance' : newStatus;
-
     try {
-      if (item.isWholeUnit) {
-        // 1. Update Whole Unit status
-        await _client
-            .from('inventory_units')
-            .update({
-              'status': targetDbStatus,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', item.id);
+      final oldStatus = comp.status;
 
-        // Update all component units under this physical set unit
-        await _client
-            .from('inventory_component_units')
-            .update({
-              'status': targetDbStatus,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('inventory_unit_id', item.id);
-      } else {
-        // 2. Update Specific Component status
-        await _client
-            .from('inventory_component_units')
-            .update({
-              'status': targetDbStatus,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', item.id);
+      // 1. Update component status in database
+      await _client
+          .from('inventory_component_units')
+          .update({
+            'status': newStatus,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', comp.id);
 
-        // If component parent unit exists, re-evaluate parent unit status
-        if (item.parentUnitId != null && item.parentUnitId!.isNotEmpty) {
-          final allCompsRes = await _client
-              .from('inventory_component_units')
-              .select('status')
-              .eq('inventory_unit_id', item.parentUnitId!);
+      // 2. Re-evaluate parent unit status
+      final allCompsRes = await _client
+          .from('inventory_component_units')
+          .select('status')
+          .eq('inventory_unit_id', comp.inventoryUnitId);
 
-          final List<String> compStatuses = (allCompsRes as List)
-              .map((c) => (c['status'] as String? ?? 'available').toLowerCase())
-              .toList();
+      final List<String> compStatuses = (allCompsRes as List)
+          .map((c) => (c['status'] as String? ?? 'available').toLowerCase())
+          .toList();
 
-          String parentUnitTargetStatus = 'available';
-          if (compStatuses.any((s) => s == 'maintenance' || s == 'damaged')) {
-            parentUnitTargetStatus = 'maintenance';
-          } else if (compStatuses.any((s) => s == 'lost')) {
-            parentUnitTargetStatus = 'lost';
-          }
-
-          await _client
-              .from('inventory_units')
-              .update({
-                'status': parentUnitTargetStatus,
-                'updated_at': DateTime.now().toIso8601String(),
-              })
-              .eq('id', item.parentUnitId!);
-        }
+      String parentUnitTargetStatus = 'available';
+      if (compStatuses.any((s) => s == 'maintenance' || s == 'damaged' || s == 'in_maintenance')) {
+        parentUnitTargetStatus = 'maintenance';
+      } else if (compStatuses.any((s) => s == 'lost' || s == 'needed_restock')) {
+        parentUnitTargetStatus = 'lost';
       }
 
-      // 3. Log Audit Trail Entry
+      await _client
+          .from('inventory_units')
+          .update({
+            'status': parentUnitTargetStatus,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', comp.inventoryUnitId);
+
+      // 3. Log Audit Trail
       final historyRepo = InventoryItemHistoryRepository();
+      String eventType = 'damaged';
+      if (newStatus == 'available') {
+        eventType = oldStatus.contains('lost') || oldStatus.contains('restock') ? 'replaced' : 'repaired';
+      } else if (newStatus.contains('lost') || newStatus.contains('restock')) {
+        eventType = 'lost';
+      }
+
       await historyRepo.logHistory(InventoryItemHistoryModel(
         id: UuidGenerator.generateV4(),
         storeId: storeId,
-        inventoryItemId: item.parentItemId,
-        inventoryUnitId: item.isWholeUnit ? item.id : item.parentUnitId,
-        inventoryComponentUnitId: item.isWholeUnit ? null : item.id,
-        eventType: targetDbStatus == 'available' ? 'restocked' : targetDbStatus,
-        previousStatus: item.currentStatus,
-        newStatus: targetDbStatus,
-        notes: 'Status updated to ${targetDbStatus == "maintenance" ? "Damaged" : targetDbStatus.toUpperCase()} for ${item.title}',
+        inventoryItemId: parentItemId,
+        inventoryUnitId: comp.inventoryUnitId,
+        inventoryComponentUnitId: comp.id,
+        eventType: eventType,
+        previousStatus: oldStatus,
+        newStatus: newStatus,
+        notes: 'Status updated from $oldStatus to $newStatus for ${comp.componentName}',
+        costIncurred: comp.replacementCost,
         createdAt: DateTime.now(),
       ));
 
-      // 4. Reload InventoryCubit and refresh restock screen
+      // 4. Refresh State
       if (mounted) {
         await context.read<InventoryCubit>().loadInventory();
         await _loadRestockAssets();
@@ -224,7 +199,7 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Updated "${item.title}" status to ${targetDbStatus == "maintenance" ? "Damaged" : targetDbStatus.toUpperCase()}!'),
+          content: Text('Updated "${comp.componentName}" status to ${_getReadableStatus(newStatus)}!'),
           backgroundColor: AppColors.primary,
           behavior: SnackBarBehavior.floating,
         ),
@@ -241,17 +216,117 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
     }
   }
 
-  List<RestockDisplayItem> get _filteredItems {
-    if (_selectedFilter == 'All') return _restockItems;
+  Future<void> _updateUnitHeaderStatus(
+    RestockUnitGroup group,
+    String newStatus,
+  ) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    final storeState = context.read<StoreCubit>().state;
+    final storeId = storeState is StoreLoaded ? storeState.store.id : user.id;
+
+    try {
+      final oldStatus = group.unit.status;
+
+      // 1. Update Unit status
+      await _client
+          .from('inventory_units')
+          .update({
+            'status': newStatus,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', group.unit.id);
+
+      // 2. Propagate status to all affected sub-components under this unit
+      for (final comp in group.affectedComponents) {
+        await _client
+            .from('inventory_component_units')
+            .update({
+              'status': newStatus,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', comp.id);
+      }
+
+      // 3. Log Audit Trail
+      final historyRepo = InventoryItemHistoryRepository();
+      String eventType = 'damaged';
+      if (newStatus == 'available') {
+        eventType = oldStatus.contains('lost') || oldStatus.contains('restock') ? 'replaced' : 'repaired';
+      } else if (newStatus.contains('lost') || newStatus.contains('restock')) {
+        eventType = 'lost';
+      }
+
+      await historyRepo.logHistory(InventoryItemHistoryModel(
+        id: UuidGenerator.generateV4(),
+        storeId: storeId,
+        inventoryItemId: group.unit.inventoryItemId,
+        inventoryUnitId: group.unit.id,
+        eventType: eventType,
+        previousStatus: oldStatus,
+        newStatus: newStatus,
+        notes: 'Unit Set #${group.unit.unitNumber} status updated to $newStatus',
+        createdAt: DateTime.now(),
+      ));
+
+      // 4. Refresh State
+      if (mounted) {
+        await context.read<InventoryCubit>().loadInventory();
+        await _loadRestockAssets();
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Updated Set #${group.unit.unitNumber} status to ${_getReadableStatus(newStatus)}!'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error updating unit status: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating unit status: $e'),
+          backgroundColor: AppColors.errorRed,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  String _getReadableStatus(String raw) {
+    final st = raw.toLowerCase();
+    if (st == 'maintenance' || st == 'damaged') return 'Damaged';
+    if (st == 'in_maintenance') return 'In Maintenance';
+    if (st == 'lost') return 'Lost';
+    if (st == 'needed_restock') return 'Needed Restock';
+    if (st == 'available') return 'Available (Restocked)';
+    return raw.toUpperCase();
+  }
+
+  List<RestockUnitGroup> get _filteredGroups {
+    if (_selectedFilter == 'All') return _unitGroups;
     final filter = _selectedFilter.toLowerCase();
 
-    return _restockItems.where((item) {
-      final st = item.currentStatus.toLowerCase();
+    return _unitGroups.where((g) {
+      final unitSt = g.unit.status.toLowerCase();
+      final hasDamagedComp = g.affectedComponents.any((c) {
+        final st = c.status.toLowerCase();
+        return st == 'maintenance' || st == 'damaged' || st == 'in_maintenance';
+      });
+      final hasLostComp = g.affectedComponents.any((c) {
+        final st = c.status.toLowerCase();
+        return st == 'lost' || st == 'needed_restock';
+      });
+
       if (filter == 'damaged') {
-        return st == 'maintenance' || st == 'damaged';
+        return unitSt == 'maintenance' || unitSt == 'damaged' || unitSt == 'in_maintenance' || hasDamagedComp;
       }
       if (filter == 'lost') {
-        return st == 'lost';
+        return unitSt == 'lost' || unitSt == 'needed_restock' || hasLostComp;
       }
       return true;
     }).toList();
@@ -262,7 +337,7 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final storeState = context.watch<StoreCubit>().state;
     final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
-    final displayList = _filteredItems;
+    final displayGroups = _filteredGroups;
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -292,7 +367,7 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : displayList.isEmpty
+                : displayGroups.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -317,131 +392,249 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
                       )
                     : ListView.separated(
                         padding: const EdgeInsets.all(16),
-                        itemCount: displayList.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
+                        itemCount: displayGroups.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 14),
                         itemBuilder: (context, index) {
-                          final item = displayList[index];
-                          final isDamaged = item.currentStatus == 'maintenance' || item.currentStatus == 'damaged';
-
-                          return Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: isDark ? AppColors.darkCard : Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Item Header
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item.parentItemName,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                              color: isDark ? AppColors.primaryLight : AppColors.primary,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            item.title,
-                                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                                          ),
-                                          if (item.serialNumber != null && item.serialNumber!.isNotEmpty) ...[
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'Serial No: ${item.serialNumber}',
-                                              style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                                            ),
-                                          ],
-                                          if (item.replacementCost > 0) ...[
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'Replacement / Repair Fee: $currency${item.replacementCost.toStringAsFixed(0)}',
-                                              style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: isDamaged
-                                            ? (isDark ? const Color(0xFF3B2314) : const Color(0xFFFEF3C7))
-                                            : (isDark ? const Color(0xFF3B1515) : const Color(0xFFFEE2E2)),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        isDamaged ? 'DAMAGED' : 'LOST',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: isDamaged ? Colors.amber.shade800 : AppColors.errorRed,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 12),
-                                Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder, height: 1),
-                                const SizedBox(height: 10),
-
-                                // Status Action Toggle Buttons
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'Change Status:',
-                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
-                                    ),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        _buildStatusChip(
-                                          label: 'Available',
-                                          targetStatus: 'available',
-                                          currentStatus: item.currentStatus,
-                                          activeColor: AppColors.primary,
-                                          isDark: isDark,
-                                          onTap: () => _updateAssetStatus(item, 'available'),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        _buildStatusChip(
-                                          label: 'Damaged',
-                                          targetStatus: 'maintenance',
-                                          currentStatus: item.currentStatus,
-                                          activeColor: AppColors.tertiaryAmber,
-                                          isDark: isDark,
-                                          onTap: () => _updateAssetStatus(item, 'maintenance'),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        _buildStatusChip(
-                                          label: 'Lost',
-                                          targetStatus: 'lost',
-                                          currentStatus: item.currentStatus,
-                                          activeColor: AppColors.errorRed,
-                                          isDark: isDark,
-                                          onTap: () => _updateAssetStatus(item, 'lost'),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
+                          final group = displayGroups[index];
+                          return _buildUnitGroupCard(group, currency, isDark);
                         },
                       ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildUnitGroupCard(RestockUnitGroup group, String currency, bool isDark) {
+    final unit = group.unit;
+    final unitSt = unit.status.toLowerCase();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Parent Item & Physical Set Unit Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.parentItemName,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppColors.primaryLight : AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '📦 Physical Set #${unit.unitNumber} (${unit.assetCode})',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+              _buildStatusBadge(unitSt, isDark),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Unit Header Status Control Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Set Status:',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+              ),
+              _buildStatusDropdown(
+                currentStatus: unitSt,
+                isDark: isDark,
+                onChanged: (newSt) {
+                  if (newSt != null) {
+                    _updateUnitHeaderStatus(group, newSt);
+                  }
+                },
+              ),
+            ],
+          ),
+
+          // 2. Sub-Components List under this Unit
+          if (group.affectedComponents.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+            const SizedBox(height: 8),
+
+            Text(
+              group.isWholeUnitDamagedOrLost
+                  ? 'All Unit Sub-Components (${group.affectedComponents.length}):'
+                  : 'Damaged / Lost Sub-Components (${group.affectedComponents.length}):',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            ...group.affectedComponents.map((comp) {
+              final compSt = comp.status.toLowerCase();
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '• ${comp.componentName}',
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                              ),
+                              if (comp.serialNumber != null && comp.serialNumber!.isNotEmpty)
+                                Text(
+                                  'SN: ${comp.serialNumber}',
+                                  style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                ),
+                              if (comp.replacementCost > 0)
+                                Text(
+                                  'Replacement Fee: $currency${comp.replacementCost.toStringAsFixed(0)}',
+                                  style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                ),
+                            ],
+                          ),
+                        ),
+                        _buildStatusBadge(compSt, isDark),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Component Status Dropdown Row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Change Status:',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                        ),
+                        _buildStatusDropdown(
+                          currentStatus: compSt,
+                          isDark: isDark,
+                          onChanged: (newSt) {
+                            if (newSt != null) {
+                              _updateComponentStatus(comp, newSt, group.unit.inventoryItemId);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(String rawStatus, bool isDark) {
+    final st = rawStatus.toLowerCase();
+
+    String label = 'AVAILABLE';
+    Color bg = isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5);
+    Color textCol = AppColors.primary;
+
+    if (st == 'maintenance' || st == 'damaged') {
+      label = 'DAMAGED';
+      bg = isDark ? const Color(0xFF3B2314) : const Color(0xFFFEF3C7);
+      textCol = Colors.amber.shade800;
+    } else if (st == 'in_maintenance') {
+      label = 'IN MAINTENANCE';
+      bg = isDark ? const Color(0xFF133238) : const Color(0xFFE0F2FE);
+      textCol = Colors.lightBlue.shade800;
+    } else if (st == 'lost') {
+      label = 'LOST';
+      bg = isDark ? const Color(0xFF3B1515) : const Color(0xFFFEE2E2);
+      textCol = AppColors.errorRed;
+    } else if (st == 'needed_restock') {
+      label = 'NEEDED RESTOCK';
+      bg = isDark ? const Color(0xFF31123F) : const Color(0xFFF3E8FF);
+      textCol = Colors.purple.shade800;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(6)),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: textCol),
+      ),
+    );
+  }
+
+  Widget _buildStatusDropdown({
+    required String currentStatus,
+    required bool isDark,
+    required ValueChanged<String?> onChanged,
+  }) {
+    final st = currentStatus.toLowerCase();
+    final bool isDamagedFlow = st == 'maintenance' || st == 'damaged' || st == 'in_maintenance';
+
+    final List<DropdownMenuItem<String>> items = isDamagedFlow
+        ? const [
+            DropdownMenuItem(value: 'maintenance', child: Text('Damaged', style: TextStyle(fontSize: 11))),
+            DropdownMenuItem(value: 'in_maintenance', child: Text('In Maintenance', style: TextStyle(fontSize: 11))),
+            DropdownMenuItem(value: 'available', child: Text('Available (Restocked)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+          ]
+        : const [
+            DropdownMenuItem(value: 'lost', child: Text('Lost', style: TextStyle(fontSize: 11))),
+            DropdownMenuItem(value: 'needed_restock', child: Text('Needed Restock', style: TextStyle(fontSize: 11))),
+            DropdownMenuItem(value: 'available', child: Text('Available (Restocked)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+          ];
+
+    String valueToUse = st;
+    if (st == 'damaged') valueToUse = 'maintenance';
+    if (!items.any((i) => i.value == valueToUse)) {
+      valueToUse = items.first.value!;
+    }
+
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurfaceLow : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: valueToUse,
+          isDense: true,
+          icon: Icon(Icons.arrow_drop_down, color: isDark ? AppColors.primaryLight : AppColors.primary, size: 18),
+          items: items,
+          onChanged: onChanged,
+        ),
       ),
     );
   }
@@ -466,40 +659,6 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
           _selectedFilter = label;
         });
       },
-    );
-  }
-
-  Widget _buildStatusChip({
-    required String label,
-    required String targetStatus,
-    required String currentStatus,
-    required Color activeColor,
-    required bool isDark,
-    required VoidCallback onTap,
-  }) {
-    final isSelected = currentStatus == targetStatus || (targetStatus == 'maintenance' && currentStatus == 'damaged');
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: isSelected ? activeColor : (isDark ? AppColors.darkSurfaceLow : Colors.grey.shade200),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isSelected ? activeColor : (isDark ? AppColors.darkBorder : Colors.grey.shade300),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
-          ),
-        ),
-      ),
     );
   }
 }
