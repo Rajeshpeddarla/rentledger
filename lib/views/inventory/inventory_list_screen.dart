@@ -162,8 +162,15 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
                       for (final it in inventoryLoaded.allItems) {
                         final c = it.category.trim();
-                        if (c.isNotEmpty && c.toLowerCase() != 'general' && !loadedCategories.any((lc) => lc.toLowerCase() == c.toLowerCase())) {
-                          loadedCategories.add(c);
+                        if (c.isNotEmpty && c.toLowerCase() != 'general') {
+                          final normC = c.toLowerCase().endsWith('s') ? c.substring(0, c.length - 1) : c;
+                          final exists = loadedCategories.any((lc) {
+                            final normLc = lc.toLowerCase().endsWith('s') ? lc.substring(0, lc.length - 1) : lc;
+                            return normLc.toLowerCase() == normC.toLowerCase();
+                          });
+                          if (!exists) {
+                            loadedCategories.add(c);
+                          }
                         }
                       }
 

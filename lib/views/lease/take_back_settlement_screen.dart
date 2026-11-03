@@ -768,97 +768,189 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                   const SizedBox(height: 10),
                   Row(
                     children: [
+                      // 1. Ready / OK Button
                       Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              for (final k in _itemStatusMap.keys) {
-                                _itemStatusMap[k] = 'available';
-                              }
-                              for (final k in _unitStatusMap.keys) {
-                                _unitStatusMap[k] = 'available';
-                              }
-                              for (final k in _subItemStatusMap.keys) {
-                                _subItemStatusMap[k] = 'available';
-                              }
-                              _returnStatus = 'available';
-                              _updateAutoDamageFee();
-                            });
-                          },
-                          icon: const Icon(Icons.check_circle_outline, size: 14),
-                          label: const Text(
-                            'Ready / OK',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
+                        child: _returnStatus == 'available'
+                            ? ElevatedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    for (final k in _itemStatusMap.keys) {
+                                      _itemStatusMap[k] = 'available';
+                                    }
+                                    for (final k in _unitStatusMap.keys) {
+                                      _unitStatusMap[k] = 'available';
+                                    }
+                                    for (final k in _subItemStatusMap.keys) {
+                                      _subItemStatusMap[k] = 'available';
+                                    }
+                                    _returnStatus = 'available';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                icon: const Icon(Icons.check_circle, size: 14, color: Colors.white),
+                                label: const Text(
+                                  'Ready / OK',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    for (final k in _itemStatusMap.keys) {
+                                      _itemStatusMap[k] = 'available';
+                                    }
+                                    for (final k in _unitStatusMap.keys) {
+                                      _unitStatusMap[k] = 'available';
+                                    }
+                                    for (final k in _subItemStatusMap.keys) {
+                                      _subItemStatusMap[k] = 'available';
+                                    }
+                                    _returnStatus = 'available';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                icon: const Icon(Icons.check_circle_outline, size: 14, color: AppColors.primary),
+                                label: const Text(
+                                  'Ready / OK',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                                  side: const BorderSide(color: AppColors.primary),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
                       ),
                       const SizedBox(width: 8),
+
+                      // 2. Damaged Button
                       Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              for (final k in _itemStatusMap.keys) {
-                                _itemStatusMap[k] = 'maintenance';
-                              }
-                              for (final k in _unitStatusMap.keys) {
-                                _unitStatusMap[k] = 'maintenance';
-                              }
-                              for (final k in _subItemStatusMap.keys) {
-                                _subItemStatusMap[k] = 'maintenance';
-                              }
-                              _returnStatus = 'maintenance';
-                              _updateAutoDamageFee();
-                            });
-                          },
-                          icon: const Icon(Icons.warning_amber_rounded, size: 14, color: AppColors.tertiaryAmber),
-                          label: const Text(
-                            'Damaged',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-                            side: const BorderSide(color: AppColors.tertiaryAmber),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
+                        child: _returnStatus == 'maintenance'
+                            ? ElevatedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    for (final k in _itemStatusMap.keys) {
+                                      _itemStatusMap[k] = 'maintenance';
+                                    }
+                                    for (final k in _unitStatusMap.keys) {
+                                      _unitStatusMap[k] = 'maintenance';
+                                    }
+                                    for (final k in _subItemStatusMap.keys) {
+                                      _subItemStatusMap[k] = 'maintenance';
+                                    }
+                                    _returnStatus = 'maintenance';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                icon: const Icon(Icons.warning_amber_rounded, size: 14, color: Colors.white),
+                                label: const Text(
+                                  'Damaged',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.tertiaryAmber,
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    for (final k in _itemStatusMap.keys) {
+                                      _itemStatusMap[k] = 'maintenance';
+                                    }
+                                    for (final k in _unitStatusMap.keys) {
+                                      _unitStatusMap[k] = 'maintenance';
+                                    }
+                                    for (final k in _subItemStatusMap.keys) {
+                                      _subItemStatusMap[k] = 'maintenance';
+                                    }
+                                    _returnStatus = 'maintenance';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                icon: const Icon(Icons.warning_amber_rounded, size: 14, color: AppColors.tertiaryAmber),
+                                label: const Text(
+                                  'Damaged',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.tertiaryAmber),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                                  side: const BorderSide(color: AppColors.tertiaryAmber),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
                       ),
                       const SizedBox(width: 8),
+
+                      // 3. Lost Button
                       Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              for (final k in _itemStatusMap.keys) {
-                                _itemStatusMap[k] = 'lost';
-                              }
-                              for (final k in _unitStatusMap.keys) {
-                                _unitStatusMap[k] = 'lost';
-                              }
-                              for (final k in _subItemStatusMap.keys) {
-                                _subItemStatusMap[k] = 'lost';
-                              }
-                              _returnStatus = 'lost';
-                              _updateAutoDamageFee();
-                            });
-                          },
-                          icon: const Icon(Icons.highlight_off, size: 14, color: AppColors.errorRed),
-                          label: const Text(
-                            'Lost',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-                            side: const BorderSide(color: AppColors.errorRed),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
+                        child: _returnStatus == 'lost'
+                            ? ElevatedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    for (final k in _itemStatusMap.keys) {
+                                      _itemStatusMap[k] = 'lost';
+                                    }
+                                    for (final k in _unitStatusMap.keys) {
+                                      _unitStatusMap[k] = 'lost';
+                                    }
+                                    for (final k in _subItemStatusMap.keys) {
+                                      _subItemStatusMap[k] = 'lost';
+                                    }
+                                    _returnStatus = 'lost';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                icon: const Icon(Icons.highlight_off, size: 14, color: Colors.white),
+                                label: const Text(
+                                  'Lost',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.errorRed,
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    for (final k in _itemStatusMap.keys) {
+                                      _itemStatusMap[k] = 'lost';
+                                    }
+                                    for (final k in _unitStatusMap.keys) {
+                                      _unitStatusMap[k] = 'lost';
+                                    }
+                                    for (final k in _subItemStatusMap.keys) {
+                                      _subItemStatusMap[k] = 'lost';
+                                    }
+                                    _returnStatus = 'lost';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                icon: const Icon(Icons.highlight_off, size: 14, color: AppColors.errorRed),
+                                label: const Text(
+                                  'Lost',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                                  side: const BorderSide(color: AppColors.errorRed),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
                       ),
                     ],
                   ),

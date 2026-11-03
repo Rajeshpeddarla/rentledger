@@ -361,7 +361,7 @@ class LeaseRepository {
     return lease;
   }
 
-  /// Take Back / Settlement Update for Lease Order, Line Items and Leased Sub-Items via single RPC transaction
+  /// Take Back / Settlement Update for Lease Order, Line Items, Leased Sub-Items and Inventory Asset Statuses
   Future<LeaseModel> returnAndSettleLease(LeaseModel lease) async {
     final updated = lease.copyWith(
       status: 'returned',
@@ -372,157 +372,146 @@ class LeaseRepository {
     final user = _client.auth.currentUser;
     if (user != null) {
       try {
-        final Map<String, dynamic> settlementPayload = updated.copyWith(storeId: user.id).toDatabaseJson();
-
-        final List<Map<String, dynamic>> itemsJson = [];
-        for (final line in updated.leaseItems) {
-          final lineMap = line.copyWith(leaseId: updated.id, storeId: user.id).toJson();
-          final List<Map<String, dynamic>> subItemsJson = [];
-          for (final sub in line.leasedSubItems) {
-            final subMap = sub.copyWith(leaseId: updated.id, leaseItemId: line.id, storeId: user.id).toDatabaseJson();
-            if (sub.leaseItemUnitId != null) subMap['lease_item_unit_id'] = sub.leaseItemUnitId;
-            if (sub.inventoryComponentUnitId != null) subMap['inventory_component_unit_id'] = sub.inventoryComponentUnitId;
-            subItemsJson.add(subMap);
-          }
-          lineMap['leased_sub_items'] = subItemsJson;
-          itemsJson.add(lineMap);
-        }
-        settlementPayload['lease_items'] = itemsJson;
-
-        debugPrint('--> [SETTLE RPC] Executing single-request settlement transaction for lease ${updated.id}');
-        final res = await _client.rpc('return_settle_lease_transaction', params: {
-          'p_settlement': settlementPayload,
-        });
-
-        debugPrint('--> [SETTLE RPC SUCCESS] Settlement transaction completed in 1 request: $res');
-
-        final index = _leases.indexWhere((l) => l.id == updated.id);
-        if (index >= 0) {
-          _leases[index] = updated;
-        } else {
-          _leases.insert(0, updated);
-        }
-        return updated;
-      } catch (rpcErr) {
-        debugPrint('--> [SETTLE RPC WARNING] Falling back to sequential execution: $rpcErr');
-      }
-
-      try {
         debugPrint('--> [SETTLE STEP 1] Updating master lease in "leases" table: ${updated.id}');
         await _client
             .from('leases')
             .update(updated.toDatabaseJson())
             .eq('id', updated.id);
-        debugPrint('--> [SETTLE STEP 1 SUCCESS] Master lease updated to returned');
 
-        if (updated.leaseItems.isNotEmpty) {
-          for (final line in updated.leaseItems) {
-            try {
-              debugPrint('--> [SETTLE STEP 2] Updating line item in "lease_items" table: ID = ${line.id}');
-              await _client
-                  .from('lease_items')
-                  .update(line.toJson())
-                  .eq('id', line.id);
-              debugPrint('--> [SETTLE STEP 2 SUCCESS] Line item updated: status = ${line.returnStatus}');
+        final Map<String, String> unitFinalStatusMap = {};
 
-              if (line.leasedSubItems.isNotEmpty) {
-                for (final sub in line.leasedSubItems) {
-                  try {
-                    debugPrint('--> [SETTLE STEP 3] Updating sub-item in "leased_sub_items" table: ID = ${sub.id}');
-                    await _client
-                        .from('leased_sub_items')
-                        .update(sub.toDatabaseJson())
-                        .eq('id', sub.id);
-                    debugPrint('--> [SETTLE STEP 3 SUCCESS] Sub-item updated: status = ${sub.conditionStatus}');
+        for (final line in updated.leaseItems) {
+          try {
+            debugPrint('--> [SETTLE STEP 2] Updating line item in "lease_items" table: ID = ${line.id}');
+            await _client
+                .from('lease_items')
+                .update(line.toJson())
+                .eq('id', line.id);
 
-                    // Sync physical asset states back upon return
-                    final targetUnitStatus = sub.conditionStatus == 'maintenance'
-                        ? 'maintenance'
-                        : (sub.conditionStatus == 'lost' ? 'lost' : 'available');
+            for (final sub in line.leasedSubItems) {
+              try {
+                debugPrint('--> [SETTLE STEP 3] Updating sub-item in "leased_sub_items" table: ID = ${sub.id}');
+                await _client
+                    .from('leased_sub_items')
+                    .update(sub.toDatabaseJson())
+                    .eq('id', sub.id);
 
-                    if (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty) {
-                      try {
-                        debugPrint('--> [SETTLE STEP 4] Updating "lease_item_units": unit = ${sub.leaseItemUnitId}');
-                        await _client
-                            .from('lease_item_units')
-                            .update({
-                              'returned_at': (updated.actualReturnTime ?? DateTime.now()).toIso8601String(),
-                              'inspection_status': targetUnitStatus == 'available' ? 'inspected_good' : targetUnitStatus,
-                            })
-                            .eq('lease_id', updated.id)
-                            .eq('inventory_unit_id', sub.leaseItemUnitId!);
-                      } catch (uLinkErr) {
-                        debugPrint('--> [SETTLE STEP 4 WARNING] lease_item_units warning: $uLinkErr');
-                      }
+                final subStatus = sub.conditionStatus.toLowerCase();
+                final targetStatus = (subStatus == 'maintenance' || subStatus == 'damaged')
+                    ? 'maintenance'
+                    : (subStatus == 'lost' ? 'lost' : 'available');
 
-                      try {
-                        debugPrint('--> [SETTLE STEP 5] Updating "inventory_units" status to "$targetUnitStatus": ID = ${sub.leaseItemUnitId}');
-                        await _client
-                            .from('inventory_units')
-                            .update({'status': targetUnitStatus})
-                            .eq('id', sub.leaseItemUnitId!);
-                        debugPrint('--> [SETTLE STEP 5 SUCCESS] inventory_units updated to $targetUnitStatus');
-                      } catch (uErr) {
-                        debugPrint('--> [SETTLE STEP 5 WARNING] inventory_units update warning: $uErr');
-                      }
-                    }
-
-                    if (sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty) {
-                      try {
-                        debugPrint('--> [SETTLE STEP 5b] Updating "inventory_component_units" status to "$targetUnitStatus": ID = ${sub.inventoryComponentUnitId}');
-                        await _client
-                            .from('inventory_component_units')
-                            .update({'status': targetUnitStatus})
-                            .eq('id', sub.inventoryComponentUnitId!);
-                        debugPrint('--> [SETTLE STEP 5b SUCCESS] inventory_component_units updated to $targetUnitStatus');
-                      } catch (compErr) {
-                        debugPrint('--> [SETTLE STEP 5b WARNING] inventory_component_units update warning: $compErr');
-                      }
-                    }
-                  } catch (subErr) {
-                    debugPrint('LeaseRepository.returnAndSettleLease leased_sub_items update warning: $subErr');
+                // Aggregate unit status (maintenance/damaged > lost > available)
+                final unitId = sub.leaseItemUnitId;
+                if (unitId != null && unitId.isNotEmpty) {
+                  final currUnitSt = unitFinalStatusMap[unitId] ?? 'available';
+                  if (targetStatus == 'maintenance') {
+                    unitFinalStatusMap[unitId] = 'maintenance';
+                  } else if (targetStatus == 'lost' && currUnitSt != 'maintenance') {
+                    unitFinalStatusMap[unitId] = 'lost';
+                  } else if (!unitFinalStatusMap.containsKey(unitId)) {
+                    unitFinalStatusMap[unitId] = 'available';
                   }
                 }
+
+                // 1. Sync status to inventory_component_units table!
+                if (sub.inventoryComponentUnitId != null && sub.inventoryComponentUnitId!.isNotEmpty) {
+                  try {
+                    await _client
+                        .from('inventory_component_units')
+                        .update({'status': targetStatus, 'updated_at': DateTime.now().toIso8601String()})
+                        .eq('id', sub.inventoryComponentUnitId!);
+                    debugPrint('--> [SETTLE STEP 4 SUCCESS] inventory_component_units ${sub.inventoryComponentUnitId} -> $targetStatus');
+                  } catch (cErr) {
+                    debugPrint('--> [SETTLE STEP 4 WARNING] inventory_component_units error: $cErr');
+                  }
+                } else if (sub.subItemId.isNotEmpty) {
+                  try {
+                    await _client
+                        .from('inventory_component_units')
+                        .update({'status': targetStatus, 'updated_at': DateTime.now().toIso8601String()})
+                        .eq('id', sub.subItemId);
+                    debugPrint('--> [SETTLE STEP 4 BY SUBITEMID SUCCESS] inventory_component_units ${sub.subItemId} -> $targetStatus');
+                  } catch (cErr1) {
+                    debugPrint('--> [SETTLE STEP 4 BY SUBITEMID WARNING] $cErr1');
+                  }
+                } else if (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty) {
+                  try {
+                    await _client
+                        .from('inventory_component_units')
+                        .update({'status': targetStatus, 'updated_at': DateTime.now().toIso8601String()})
+                        .eq('inventory_unit_id', sub.leaseItemUnitId!)
+                        .ilike('component_name', sub.itemName);
+                    debugPrint('--> [SETTLE STEP 4 FALLBACK SUCCESS] inventory_component_units for ${sub.itemName} -> $targetStatus');
+                  } catch (cErr2) {
+                    debugPrint('--> [SETTLE STEP 4 FALLBACK WARNING] $cErr2');
+                  }
+                }
+              } catch (subErr) {
+                debugPrint('LeaseRepository.returnAndSettleLease leased_sub_items update warning: $subErr');
               }
-            } catch (lineErr) {
-              debugPrint('LeaseRepository.returnAndSettleLease line item update warning: $lineErr');
             }
+          } catch (lineErr) {
+            debugPrint('LeaseRepository.returnAndSettleLease line item update warning: $lineErr');
           }
         }
 
-        // Sync physical asset states back to available for all assigned physical units in lease_item_units
+        // 2. Batch update physical unit statuses in inventory_units and lease_item_units table
+        final returnTimeStr = (updated.actualReturnTime ?? DateTime.now()).toIso8601String();
+
         try {
-          final unitAssignments = await _client
+          final assignedUnitsRes = await _client
               .from('lease_item_units')
               .select('inventory_unit_id')
               .eq('lease_id', updated.id);
 
-          for (final assignment in unitAssignments as List) {
-            final unitId = assignment['inventory_unit_id'] as String?;
-            if (unitId != null && unitId.isNotEmpty) {
+          for (final row in assignedUnitsRes as List) {
+            final uId = row['inventory_unit_id'] as String?;
+            if (uId != null && uId.isNotEmpty) {
+              final compRes = await _client
+                  .from('inventory_component_units')
+                  .select('status')
+                  .eq('inventory_unit_id', uId);
+
+              final List<String> cStatuses = (compRes as List)
+                  .map((c) => (c['status'] as String? ?? 'available').toLowerCase())
+                  .toList();
+
+              String finalUStatus = 'available';
+              if (cStatuses.any((s) => s == 'maintenance' || s == 'damaged')) {
+                finalUStatus = 'maintenance';
+              } else if (cStatuses.any((s) => s == 'lost')) {
+                finalUStatus = 'lost';
+              } else if (unitFinalStatusMap.containsKey(uId)) {
+                finalUStatus = unitFinalStatusMap[uId]!;
+              }
+
               await _client
                   .from('inventory_units')
-                  .update({'status': 'available'})
-                  .eq('id', unitId);
+                  .update({'status': finalUStatus, 'updated_at': DateTime.now().toIso8601String()})
+                  .eq('id', uId);
 
-              await _client
-                  .from('inventory_component_units')
-                  .update({'status': 'available'})
-                  .eq('inventory_unit_id', unitId);
-
-              await _client
-                  .from('lease_item_units')
-                  .update({
-                    'returned_at': (updated.actualReturnTime ?? DateTime.now()).toIso8601String(),
-                    'inspection_status': 'inspected_good',
-                  })
-                  .eq('lease_id', updated.id)
-                  .eq('inventory_unit_id', unitId);
-              debugPrint('--> [SETTLE UNIT SYNC SUCCESS] Unit $unitId restored to available');
+              debugPrint('--> [SETTLE UNIT SYNC SUCCESS] Physical unit $uId status set to $finalUStatus');
             }
           }
         } catch (uSyncErr) {
-          debugPrint('--> [SETTLE UNIT SYNC WARNING] lease_item_units sync warning: $uSyncErr');
+          debugPrint('--> [SETTLE UNIT SYNC WARNING] $uSyncErr');
+        }
+
+        // 3. Always close ALL remaining active lease_item_units records for this lease
+        try {
+          await _client
+              .from('lease_item_units')
+              .update({
+                'returned_at': returnTimeStr,
+                'inspection_status': 'inspected_good',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('lease_id', updated.id)
+              .isFilter('returned_at', null);
+          debugPrint('--> [SETTLE STEP 6 SUCCESS] All lease_item_units closed with returned_at = $returnTimeStr');
+        } catch (closeErr) {
+          debugPrint('--> [SETTLE STEP 6 WARNING] lease_item_units close error: $closeErr');
         }
 
         final index = _leases.indexWhere((l) => l.id == updated.id);

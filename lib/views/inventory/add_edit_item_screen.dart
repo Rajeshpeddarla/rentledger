@@ -136,7 +136,13 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     _taxRateController = TextEditingController(text: item != null ? item.taxRate.toStringAsFixed(1) : '0.0');
     _isTaxInclusive = item?.isTaxInclusive ?? false;
 
-    _selectedCategory = item?.category ?? 'Cameras';
+    final catState = context.read<CategoryCubit>().state;
+    final List<String> loadedCatNames = catState is CategoryLoaded
+        ? catState.categoryNames.where((n) => n.trim().isNotEmpty).toList()
+        : <String>[];
+
+    final defaultCategory = loadedCatNames.isNotEmpty ? loadedCatNames.first : 'General';
+    _selectedCategory = item?.category ?? defaultCategory;
     _imageUrl = item?.imageR2Url;
 
     _setsCountController = TextEditingController(text: '${item?.totalQuantity ?? 1}');
@@ -377,6 +383,12 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       // Load existing physical sets if editing an existing equipment item
       List<InventoryUnitModel> existingUnits = [];
       if (widget.initialItem != null) {
+        if (setsCount < existingUnits.length) {
+          await repo.deleteExtraAvailableUnits(
+            productId: widget.initialItem!.id,
+            targetCount: setsCount,
+          );
+        }
         existingUnits = await repo.getUnitsForProduct(widget.initialItem!.id);
       }
 
@@ -1102,6 +1114,26 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   void _openCategoryPickerModal(BuildContext context, List<String> categoryNames, bool isDark) {
     FocusManager.instance.primaryFocus?.unfocus();
 
+    String normalize(String s) {
+      final trimmed = s.trim().toLowerCase();
+      return trimmed.endsWith('s') ? trimmed.substring(0, trimmed.length - 1) : trimmed;
+    }
+
+    final List<String> pickerCategories = List<String>.from(categoryNames);
+
+    if (_selectedCategory.trim().isNotEmpty) {
+      final matchingCategory = pickerCategories.where((c) => normalize(c) == normalize(_selectedCategory)).firstOrNull;
+      if (matchingCategory != null) {
+        _selectedCategory = matchingCategory;
+      } else if (!pickerCategories.any((c) => c.toLowerCase() == _selectedCategory.toLowerCase())) {
+        pickerCategories.insert(0, _selectedCategory);
+      }
+    }
+
+    if (pickerCategories.isEmpty) {
+      pickerCategories.addAll(['Cameras', 'Lenses', 'Lighting', 'Audio', 'Drones', 'General']);
+    }
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1155,11 +1187,11 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                 ),
                 child: ListView.separated(
                   shrinkWrap: true,
-                  itemCount: categoryNames.length,
+                  itemCount: pickerCategories.length,
                   separatorBuilder: (context, index) => const SizedBox(height: 6),
                   itemBuilder: (context, index) {
-                    final cat = categoryNames[index];
-                    final isSelected = cat == _selectedCategory;
+                    final cat = pickerCategories[index];
+                    final isSelected = cat.trim().toLowerCase() == _selectedCategory.trim().toLowerCase();
 
                     return InkWell(
                       onTap: () {
@@ -1215,9 +1247,9 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     final categoryState = context.watch<CategoryCubit>().state;
     final List<String> categoryNames = categoryState is CategoryLoaded
         ? categoryState.categoryNames
-        : <String>['Cameras', 'Lenses', 'Lighting', 'Audio', 'Drones', 'General'];
+        : <String>[];
 
-    final String effectiveValue = categoryNames.contains(_selectedCategory)
+    final String displayCategory = _selectedCategory.trim().isNotEmpty
         ? _selectedCategory
         : (categoryNames.isNotEmpty ? categoryNames.first : 'General');
 
@@ -1263,7 +1295,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      effectiveValue,
+                      displayCategory,
                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -1277,7 +1309,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     );
   }
 
-  void _handleAddOrUpdateComponent() {
+  void _handleAddOrUpdateComponent() async {
     final name = _capitalizeFirstLetter(_formCompNameController.text);
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1289,16 +1321,34 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
     final qty = int.tryParse(_formCompQtyController.text.trim()) ?? 1;
     final cost = double.tryParse(_formCompCostController.text.trim()) ?? 0.0;
 
-    setState(() {
-      if (_editingCompIndex != null && _editingCompIndex! < _componentDefInputs.length) {
-        // Update existing component in place
-        final existing = _componentDefInputs[_editingCompIndex!];
-        existing.nameCtrl.text = name;
-        existing.qtyCtrl.text = '$qty';
-        existing.costCtrl.text = cost > 0 ? cost.toStringAsFixed(0) : '';
+    if (_editingCompIndex != null && _editingCompIndex! < _componentDefInputs.length) {
+      // Update existing component in place
+      final existing = _componentDefInputs[_editingCompIndex!];
+      final oldName = existing.nameCtrl.text.trim();
+
+      existing.nameCtrl.text = name;
+      existing.qtyCtrl.text = '$qty';
+      existing.costCtrl.text = cost > 0 ? cost.toStringAsFixed(0) : '';
+
+      // Perform 1-request batch update across all physical sets in DB if editing existing product
+      if (widget.initialItem != null && oldName.isNotEmpty && oldName != name) {
+        await InventoryUnitRepository().updateComponentNameAndCost(
+          productId: widget.initialItem!.id,
+          oldName: oldName,
+          newName: name,
+          newCost: cost,
+        );
+      }
+
+      setState(() {
         _editingCompIndex = null;
-      } else {
-        // Add new component to list
+        _formCompNameController.clear();
+        _formCompQtyController.text = '1';
+        _formCompCostController.clear();
+      });
+    } else {
+      // Add new component to list
+      setState(() {
         _componentDefInputs.add(
           ComponentDefinitionInput(
             name: name,
@@ -1307,13 +1357,11 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             isRequired: true,
           ),
         );
-      }
-
-      // Reset form input fields
-      _formCompNameController.clear();
-      _formCompQtyController.text = '1';
-      _formCompCostController.clear();
-    });
+        _formCompNameController.clear();
+        _formCompQtyController.text = '1';
+        _formCompCostController.clear();
+      });
+    }
   }
 
   void _startEditingComponent(int index) {
@@ -1553,7 +1601,14 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                         constraints: const BoxConstraints(),
                         padding: const EdgeInsets.all(4),
                         tooltip: 'Remove Component',
-                        onPressed: () {
+                        onPressed: () async {
+                          final cName = comp.nameCtrl.text.trim();
+                          if (widget.initialItem != null && cName.isNotEmpty) {
+                            await InventoryUnitRepository().deleteComponentFromProduct(
+                              productId: widget.initialItem!.id,
+                              componentName: cName,
+                            );
+                          }
                           setState(() {
                             if (_editingCompIndex == index) {
                               _editingCompIndex = null;

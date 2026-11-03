@@ -14,6 +14,7 @@ import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
 import '../../viewmodels/lease/lease_state.dart';
 import 'add_edit_item_screen.dart';
+import 'equipment_history_timeline_screen.dart';
 
 class ItemDetailHistoryScreen extends StatefulWidget {
   final InventoryItemModel item;
@@ -216,114 +217,11 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(item.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                if (item.description != null && item.description!.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(item.description!, style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
-                                ],
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 80,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // 1. Separate Green Edit Container Button (Fixed 80px Width)
-                                InkWell(
-                                  onTap: () async {
-                                    await Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => AddEditItemScreen(initialItem: item, isPro: isPro),
-                                      ),
-                                    );
-                                    if (mounted) {
-                                      _loadUnits();
-                                    }
-                                  },
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 6),
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color: isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: isDark ? AppColors.primary : const Color(0xFFA7F3D0),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.edit_outlined,
-                                          size: 13,
-                                          color: isDark ? AppColors.primaryLight : AppColors.primary,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Edit',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: isDark ? AppColors.primaryLight : AppColors.primary,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-
-                                const SizedBox(height: 6),
-
-                                // 2. Separate Red Delete Container Button (Fixed 80px Width)
-                                InkWell(
-                                  onTap: () => _showDeleteConfirmationDialog(context, item),
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 6),
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color: isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA),
-                                      ),
-                                    ),
-                                    child: const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.delete_outline,
-                                          size: 13,
-                                          color: AppColors.errorRed,
-                                        ),
-                                        SizedBox(width: 4),
-                                        Text(
-                                          'Delete',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.errorRed,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                      Text(item.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      if (item.description != null && item.description!.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(item.description!, style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
+                      ],
                       const SizedBox(height: 14),
                       Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                       const SizedBox(height: 10),
@@ -338,6 +236,77 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                           _buildRatePill('Monthly', widget.currency, item.rateMonthly, isDark),
                         ],
                       ),
+                      const SizedBox(height: 14),
+
+                      // 3 Action Buttons Row: Edit | Delete | History
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => AddEditItemScreen(initialItem: item, isPro: isPro),
+                                  ),
+                                );
+                                if (mounted) {
+                                  _loadUnits();
+                                }
+                              },
+                              icon: const Icon(Icons.edit_outlined, size: 14),
+                              label: const Text('Edit', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: const BorderSide(color: AppColors.primary),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showDeleteConfirmationDialog(context, item),
+                              icon: const Icon(Icons.delete_outline, size: 14),
+                              label: const Text('Delete', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.errorRed,
+                                side: const BorderSide(color: AppColors.errorRed),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => EquipmentHistoryTimelineScreen(
+                                      item: item,
+                                      currency: widget.currency,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.history, size: 14),
+                              label: const Text('History', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -345,7 +314,7 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                 const SizedBox(height: 16),
 
                 // Physical Sets & Components Card List
-                const Text('Owned Physical Sets & Component Breakdowns', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                const Text('Physical Sets & Components', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
 
                 if (_isLoadingUnits)

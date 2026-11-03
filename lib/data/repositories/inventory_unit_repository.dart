@@ -157,6 +157,110 @@ class InventoryUnitRepository {
     }
   }
 
+  /// Batch update component name and damage/loss replacement cost across all physical sets in 1 DB request
+  Future<void> updateComponentNameAndCost({
+    required String productId,
+    required String oldName,
+    required String newName,
+    required double newCost,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      // 1. Update sub_item_definitions template
+      await _client
+          .from('sub_item_definitions')
+          .update({
+            'component_name': newName,
+            'replacement_cost': newCost,
+          })
+          .eq('parent_item_id', productId)
+          .eq('store_id', user.id)
+          .ilike('component_name', oldName);
+
+      // 2. Single batch update on inventory_component_units across all physical sets (1 Request!)
+      await _client
+          .from('inventory_component_units')
+          .update({
+            'component_name': newName,
+            'replacement_cost': newCost,
+          })
+          .eq('inventory_item_id', productId)
+          .eq('store_id', user.id)
+          .ilike('component_name', oldName);
+
+      debugPrint('--> [BATCH COMPONENT UPDATE] Renamed "$oldName" to "$newName" ($newCost) across all units in 1 DB request.');
+    } catch (e) {
+      debugPrint('--> [BATCH COMPONENT UPDATE ERROR] $e');
+    }
+  }
+
+  /// Delete component template and unrented component units for a product
+  Future<void> deleteComponentFromProduct({
+    required String productId,
+    required String componentName,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _client
+          .from('sub_item_definitions')
+          .delete()
+          .eq('parent_item_id', productId)
+          .eq('store_id', user.id)
+          .ilike('component_name', componentName);
+
+      await _client
+          .from('inventory_component_units')
+          .delete()
+          .eq('inventory_item_id', productId)
+          .eq('store_id', user.id)
+          .ilike('component_name', componentName)
+          .neq('status', 'rented');
+
+      debugPrint('--> [DELETE COMPONENT SUCCESS] Removed "$componentName" template and unrented units.');
+    } catch (e) {
+      debugPrint('--> [DELETE COMPONENT ERROR] $e');
+    }
+  }
+
+  /// Delete unrented physical units if user decreased sets count
+  Future<void> deleteExtraAvailableUnits({
+    required String productId,
+    required int targetCount,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final existing = await getUnitsForProduct(productId);
+      if (existing.length > targetCount) {
+        final toRemove = existing.sublist(targetCount);
+        for (final unit in toRemove) {
+          if (unit.status == 'available') {
+            await _client
+                .from('inventory_component_units')
+                .delete()
+                .eq('inventory_unit_id', unit.id)
+                .neq('status', 'rented');
+
+            await _client
+                .from('inventory_units')
+                .delete()
+                .eq('id', unit.id)
+                .eq('status', 'available');
+
+            debugPrint('--> [DELETE EXTRA SET SUCCESS] Removed unrented set ${unit.assetCode}');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('--> [DELETE EXTRA SET ERROR] $e');
+    }
+  }
+
   /// Transactional save of physical sets and their physical component units without deleting existing units
   Future<void> savePhysicalSets({
     required String productId,
