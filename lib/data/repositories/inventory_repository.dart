@@ -89,7 +89,7 @@ class InventoryRepository {
               .from('inventory_units')
               .select('inventory_item_id, status')
               .eq('store_id', user.id)
-              .inFilter('status', ['maintenance', 'damaged', 'in_maintenance', 'lost', 'needed_restock']);
+              .or('status.eq.damaged,status.eq.maintenance,status.eq.in_maintenance,status.eq.lost,status.eq.needed_restock');
 
           for (final row in (unitStatusData as List)) {
             final iId = row['inventory_item_id'] as String?;

@@ -208,7 +208,9 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                             child: Text(
                               '${item.availableQuantity}/${item.totalQuantity} Available'
                               '${item.activeLeasesCount > 0 ? " • ${item.activeLeasesCount} Rented" : ""}'
-                              '${item.reservedCount > 0 ? " • ${item.reservedCount} Reserved" : ""}',
+                              '${item.reservedCount > 0 ? " • ${item.reservedCount} Reserved" : ""}'
+                              '${item.maintenanceCount > 0 ? " • ${item.maintenanceCount} Damaged" : ""}'
+                              '${item.lostCount > 0 ? " • ${item.lostCount} Lost" : ""}',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
