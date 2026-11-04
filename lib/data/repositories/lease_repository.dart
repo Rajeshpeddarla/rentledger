@@ -488,12 +488,13 @@ class LeaseRepository {
                   .toList();
 
               String finalUStatus = 'available';
-              if (cStatuses.any((s) => s == 'maintenance' || s == 'damaged')) {
-                finalUStatus = 'maintenance';
-              } else if (cStatuses.any((s) => s == 'lost')) {
+              if (cStatuses.any((s) => s == 'damaged' || s == 'maintenance' || s == 'in_maintenance')) {
+                finalUStatus = 'damaged';
+              } else if (cStatuses.any((s) => s == 'lost' || s == 'needed_restock')) {
                 finalUStatus = 'lost';
               } else if (unitFinalStatusMap.containsKey(uId)) {
-                finalUStatus = unitFinalStatusMap[uId]!;
+                final st = unitFinalStatusMap[uId]!.toLowerCase();
+                finalUStatus = (st == 'maintenance' || st == 'damaged' || st == 'in_maintenance') ? 'damaged' : st;
               }
 
               await _client
