@@ -197,27 +197,6 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: item.availableQuantity > 0
-                                  ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
-                                  : (isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6)),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '${item.availableQuantity}/${item.totalQuantity} Available'
-                              '${item.activeLeasesCount > 0 ? " • ${item.activeLeasesCount} Rented" : ""}'
-                              '${item.reservedCount > 0 ? " • ${item.reservedCount} Reserved" : ""}'
-                              '${item.maintenanceCount > 0 ? " • ${item.maintenanceCount} Damaged" : ""}'
-                              '${item.lostCount > 0 ? " • ${item.lostCount} Lost" : ""}',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: item.availableQuantity > 0 ? AppColors.primaryLight : AppColors.errorRed,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -227,6 +206,29 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                         Text(item.description!, style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary)),
                       ],
                       const SizedBox(height: 14),
+                       Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: item.availableQuantity > 0
+                                ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
+                                : (isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6)),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '${item.availableQuantity}/${item.totalQuantity} Available'
+                                '${item.activeLeasesCount > 0 ? " • ${item.activeLeasesCount} Rented" : ""}'
+                                '${item.maintenanceCount > 0 ? " • ${item.maintenanceCount} Damaged" : ""}'
+                                '${item.lostCount > 0 ? " • ${item.lostCount} Lost" : ""}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: item.availableQuantity > 0 ? AppColors.primaryLight : AppColors.errorRed,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      SizedBox(height: 5),
                       Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
                       const SizedBox(height: 10),
 

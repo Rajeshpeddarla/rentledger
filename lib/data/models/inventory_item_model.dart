@@ -64,13 +64,12 @@ class InventoryItemModel extends Equatable {
   });
 
   /// Stock Calculation Formula:
-  /// Available stock = Total stock - Leased - AwaitingInspection - Maintenance - Reserved - Lost
+  /// Available stock = Total stock - Active Leased - AwaitingInspection - Maintenance - Lost
   int get availableQuantity {
     final available = totalQuantity -
         activeLeasesCount -
         awaitingInspectionCount -
         maintenanceCount -
-        reservedCount -
         lostCount;
     return available < 0 ? 0 : available;
   }

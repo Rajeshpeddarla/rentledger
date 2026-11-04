@@ -630,19 +630,13 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                           decoration: BoxDecoration(color: isDark ? const Color(0xFF3B2314) : const Color(0xFFFFF6E5), borderRadius: BorderRadius.circular(4)),
-                          child: Text('${item.maintenanceCount} In Maintenance', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade800)),
-                        ),
-                      if (item.reservedCount > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(4)),
-                          child: Text('${item.reservedCount} Reserved', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.secondary)),
+                          child: Text('${item.maintenanceCount} Damaged', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
                         ),
                       if (item.lostCount > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(color: isDark ? const Color(0xFF31123F) : const Color(0xFFF3E8FF), borderRadius: BorderRadius.circular(4)),
-                          child: Text('${item.lostCount} Needed Restock', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isDark ? Colors.purple.shade200 : Colors.purple.shade800)),
+                          decoration: BoxDecoration(color: isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.lostCount} Lost', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
                         ),
                     ],
                   ),

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/config/app_theme.dart';
 import '../../core/services/pdf_receipt_service.dart';
+import '../../data/models/inventory_unit_model.dart';
 import '../../data/models/lease_model.dart';
 import '../../data/models/store_model.dart';
+import '../../data/repositories/inventory_unit_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
@@ -29,6 +32,41 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   DateTime _selectedRhythmDate = DateTime.now();
+  Map<String, String> _unitStatusMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnitStatuses();
+  }
+
+  Future<void> _loadUnitStatuses() async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final res = await client
+          .from('inventory_units')
+          .select('id, status')
+          .eq('store_id', user.id);
+
+      final Map<String, String> map = {};
+      for (final row in (res as List)) {
+        final uId = row['id'] as String?;
+        final st = row['status'] as String? ?? 'available';
+        if (uId != null) map[uId] = st.toLowerCase();
+      }
+
+      if (mounted) {
+        setState(() {
+          _unitStatusMap = map;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading unit statuses: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +82,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onRefresh: () async {
           context.read<InventoryCubit>().loadInventory();
           context.read<LeaseCubit>().loadLeases();
+          await _loadUnitStatuses();
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -648,7 +687,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 150,
+          height: 162,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: upcomingList.length,
@@ -659,13 +698,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
               final custName = lease.customer?.name ?? 'Client';
               final phone = lease.customer?.phone ?? '';
 
+              bool hasUnitConflict = false;
+              String? conflictUnitCode;
+              String? conflictCompName;
+              String? conflictStatusLabel;
+              String? conflictUnitId;
+
+              for (final line in lease.leaseItems) {
+                for (final sub in line.leasedSubItems) {
+                  final uId = sub.leaseItemUnitId;
+                  final liveSt = uId != null ? (_unitStatusMap[uId] ?? sub.conditionStatus.toLowerCase()) : sub.conditionStatus.toLowerCase();
+
+                  if (liveSt == 'maintenance' ||
+                      liveSt == 'damaged' ||
+                      liveSt == 'in_maintenance' ||
+                      liveSt == 'lost' ||
+                      liveSt == 'needed_restock') {
+                    hasUnitConflict = true;
+                    conflictUnitCode = sub.serialNumber ?? 'Assigned Set';
+                    conflictCompName = sub.itemName;
+                    if (liveSt == 'maintenance' || liveSt == 'damaged') conflictStatusLabel = 'Damaged';
+                    else if (liveSt == 'in_maintenance') conflictStatusLabel = 'In Maintenance';
+                    else if (liveSt == 'lost') conflictStatusLabel = 'Lost';
+                    else if (liveSt == 'needed_restock') conflictStatusLabel = 'Needed Restock';
+                    else conflictStatusLabel = 'Unavailable';
+                    conflictUnitId = uId;
+                    break;
+                  }
+                }
+                if (hasUnitConflict) break;
+              }
+
               return Container(
                 width: cardWidth,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: isDark ? AppColors.darkCard : Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  border: Border.all(
+                    color: hasUnitConflict ? AppColors.errorRed : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                    width: hasUnitConflict ? 1.5 : 1.0,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -715,10 +788,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
 
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
                         borderRadius: BorderRadius.circular(8),
@@ -728,7 +801,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: [
                           Text(
                             'Equipment: ${lease.itemNamesSummary}',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 2),
@@ -737,12 +810,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             children: [
                               Text(
                                 'Pick-up: ${DateFormat("dd MMM, hh:mm a").format(lease.startTime)}',
-                                style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
+                                style: TextStyle(fontSize: 9.0, fontWeight: FontWeight.bold, color: isDark ? AppColors.primaryLight : AppColors.primary),
                               ),
                               if (advancePaid > 0)
                                 Text(
                                   'Adv: $currency${advancePaid.toStringAsFixed(0)}',
-                                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                                  style: TextStyle(fontSize: 9.0, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
                                 ),
                             ],
                           ),
@@ -750,30 +823,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
 
+                    if (hasUnitConflict) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '⚠️ Conflict: $conflictUnitCode ($conflictCompName) is $conflictStatusLabel',
+                        style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+
                     const Spacer(),
 
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        OutlinedButton(
-                          onPressed: () async {
-                            final res = await Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
-                            );
-                            if (res == true && mounted) {
-                              context.read<LeaseCubit>().loadLeases();
-                            }
-                          },
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.errorRed),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    if (hasUnitConflict) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: () => _openSwapUnitModal(context, lease, conflictUnitId),
+                            icon: const Icon(Icons.swap_horiz, size: 12),
+                            label: const Text('Swap Unit', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
                           ),
-                          child: const Text('Cancel Lease', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
-                        ),
-                      ],
-                    ),
+                          OutlinedButton.icon(
+                            onPressed: () => _openChangeUnitStatusModal(context, lease, conflictUnitId),
+                            icon: const Icon(Icons.build_outlined, size: 12),
+                            label: const Text('Status', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: () async {
+                              final res = await Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
+                              );
+                              if (res == true && mounted) {
+                                context.read<LeaseCubit>().loadLeases();
+                              }
+                            },
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppColors.errorRed),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text('Cancel', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _openRescheduleModal(context, lease),
+                            icon: const Icon(Icons.edit_calendar, size: 12),
+                            label: const Text('Reschedule', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: () async {
+                              final res = await Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
+                              );
+                              if (res == true && mounted) {
+                                context.read<LeaseCubit>().loadLeases();
+                              }
+                            },
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: AppColors.errorRed),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text('Cancel Lease', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -783,6 +921,453 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(height: 16),
       ],
     );
+  }
+
+  Future<void> _openRescheduleModal(BuildContext context, LeaseModel lease) async {
+    final client = Supabase.instance.client;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    DateTime newStart = lease.startTime;
+    DateTime newEnd = lease.expectedEndTime;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.edit_calendar_outlined, color: AppColors.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Reschedule Booking: ${lease.itemNamesSummary}',
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Client: ${lease.customer?.name ?? "Customer"}',
+                    style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Pick New Start Date & Time
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('New Pick-up Start Time:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            Text(
+                              DateFormat('dd MMM yyyy, hh:mm a').format(newStart),
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.primary),
+                            ),
+                          ],
+                        ),
+                        TextButton.icon(
+                          onPressed: () async {
+                            final d = await showDatePicker(
+                              context: modalCtx,
+                              initialDate: newStart,
+                              firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                              lastDate: DateTime.now().add(const Duration(days: 180)),
+                            );
+                            if (d == null) return;
+                            final t = await showTimePicker(
+                              context: modalCtx,
+                              initialTime: TimeOfDay.fromDateTime(newStart),
+                            );
+                            final time = t ?? TimeOfDay.fromDateTime(newStart);
+                            setModalState(() {
+                              newStart = DateTime(d.year, d.month, d.day, time.hour, time.minute);
+                              if (newEnd.isBefore(newStart)) {
+                                newEnd = newStart.add(const Duration(days: 1));
+                              }
+                            });
+                          },
+                          icon: const Icon(Icons.calendar_today, size: 14),
+                          label: const Text('Change', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Pick New End Date & Time
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('New Expected Return Time:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            Text(
+                              DateFormat('dd MMM yyyy, hh:mm a').format(newEnd),
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.primary),
+                            ),
+                          ],
+                        ),
+                        TextButton.icon(
+                          onPressed: () async {
+                            final d = await showDatePicker(
+                              context: modalCtx,
+                              initialDate: newEnd.isBefore(newStart) ? newStart : newEnd,
+                              firstDate: DateTime(newStart.year, newStart.month, newStart.day),
+                              lastDate: DateTime.now().add(const Duration(days: 180)),
+                            );
+                            if (d == null) return;
+                            final t = await showTimePicker(
+                              context: modalCtx,
+                              initialTime: TimeOfDay.fromDateTime(newEnd),
+                            );
+                            final time = t ?? TimeOfDay.fromDateTime(newEnd);
+                            DateTime endCandidate = DateTime(d.year, d.month, d.day, time.hour, time.minute);
+                            if (!endCandidate.isAfter(newStart)) {
+                              endCandidate = newStart.add(const Duration(hours: 1));
+                            }
+                            setModalState(() {
+                              newEnd = endCandidate;
+                            });
+                          },
+                          icon: const Icon(Icons.calendar_today, size: 14),
+                          label: const Text('Change', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      minimumSize: const Size.fromHeight(46),
+                    ),
+                    icon: const Icon(Icons.check_circle_outline, size: 18),
+                    label: const Text('Confirm Reschedule', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: () async {
+                      Navigator.pop(modalCtx);
+                      try {
+                        await client.from('leases').update({
+                          'start_time': newStart.toIso8601String(),
+                          'expected_end_time': newEnd.toIso8601String(),
+                          'updated_at': DateTime.now().toIso8601String(),
+                        }).eq('id', lease.id);
+
+                        await client.from('lease_item_units').update({
+                          'checked_out_at': newStart.toIso8601String(),
+                        }).eq('lease_id', lease.id);
+
+                        if (!mounted) return;
+                        await context.read<LeaseCubit>().loadLeases();
+
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Rescheduled booking for ${lease.customer?.name ?? "Client"} to ${DateFormat("dd MMM, hh:mm a").format(newStart)}!'),
+                            backgroundColor: AppColors.primary,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error rescheduling booking: $e'),
+                            backgroundColor: AppColors.errorRed,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openSwapUnitModal(BuildContext context, LeaseModel lease, String? currentUnitId) async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    try {
+      final unitRepo = InventoryUnitRepository();
+      final units = await unitRepo.getUnitsForProduct(lease.itemId);
+      final availableUnits = units.where((u) => u.isAvailable && u.id != currentUnitId).toList();
+
+      if (!mounted) return;
+
+      if (availableUnits.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No other available physical units found for this equipment.'),
+            backgroundColor: AppColors.errorRed,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (ctx) {
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.6,
+            minChildSize: 0.3,
+            maxChildSize: 0.85,
+            builder: (sheetCtx, scrollController) {
+              return Padding(
+                padding: const EdgeInsets.all(20),
+                child: ListView(
+                  controller: scrollController,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.swap_horiz_outlined, color: AppColors.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Swap Unit for ${lease.itemNamesSummary}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Select an available physical unit to assign to this reservation:',
+                      style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                    ),
+                    const SizedBox(height: 16),
+
+                    ...availableUnits.map((u) {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '📦 Set #${u.unitNumber} (${u.assetCode})',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${u.components.length} components included',
+                                    style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () async {
+                                Navigator.pop(ctx);
+                                try {
+                                  if (currentUnitId != null && currentUnitId.isNotEmpty) {
+                                    await client
+                                        .from('lease_item_units')
+                                        .update({'inventory_unit_id': u.id})
+                                        .eq('lease_id', lease.id)
+                                        .eq('inventory_unit_id', currentUnitId);
+
+                                    await client
+                                        .from('leased_sub_items')
+                                        .update({'lease_item_unit_id': u.id, 'condition_status': 'available'})
+                                        .eq('lease_id', lease.id)
+                                        .eq('lease_item_unit_id', currentUnitId);
+                                  }
+
+                                  if (!mounted) return;
+                                  await _loadUnitStatuses();
+                                  await context.read<LeaseCubit>().loadLeases();
+                                  await context.read<InventoryCubit>().loadInventory();
+
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Swapped reservation to Set #${u.unitNumber} (${u.assetCode})!'),
+                                      backgroundColor: AppColors.primary,
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error swapping unit: $e'),
+                                      backgroundColor: AppColors.errorRed,
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                }
+                              },
+                              child: const Text('Assign Unit', style: TextStyle(fontSize: 11)),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint('Error opening swap modal: $e');
+    }
+  }
+
+  Future<void> _openChangeUnitStatusModal(BuildContext context, LeaseModel lease, String? currentUnitId) async {
+    final client = Supabase.instance.client;
+    if (currentUnitId == null || currentUnitId.isEmpty) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    try {
+      final unitRes = await client.from('inventory_units').select('*').eq('id', currentUnitId).single();
+      final unit = InventoryUnitModel.fromJson(unitRes);
+
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (ctx) {
+          return Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.build_outlined, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Change Status: Set #${unit.unitNumber} (${unit.assetCode})',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Current status: ${unit.status.toUpperCase()}. Change to "Available" if unit is repaired and ready for handover:',
+                  style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                ),
+                const SizedBox(height: 16),
+
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    minimumSize: const Size.fromHeight(44),
+                  ),
+                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('Mark Repaired & Available', style: TextStyle(fontWeight: FontWeight.bold)),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    try {
+                      await client.from('inventory_units').update({'status': 'available', 'updated_at': DateTime.now().toIso8601String()}).eq('id', unit.id);
+                      await client.from('inventory_component_units').update({'status': 'available', 'updated_at': DateTime.now().toIso8601String()}).eq('inventory_unit_id', unit.id);
+                      await client.from('leased_sub_items').update({'condition_status': 'available', 'updated_at': DateTime.now().toIso8601String()}).eq('lease_id', lease.id).eq('lease_item_unit_id', unit.id);
+
+                      if (!mounted) return;
+                      await _loadUnitStatuses();
+                      await context.read<LeaseCubit>().loadLeases();
+                      await context.read<InventoryCubit>().loadInventory();
+
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Unit Set #${unit.unitNumber} marked Available!'),
+                          backgroundColor: AppColors.primary,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Error updating status: $e'),
+                          backgroundColor: AppColors.errorRed,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint('Error opening status modal: $e');
+    }
   }
 
   Widget _buildWeeklyRhythmStrip(BuildContext context, bool isDark) {
