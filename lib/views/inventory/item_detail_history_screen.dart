@@ -206,7 +206,9 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              '${item.availableQuantity}/${item.totalQuantity} Sets Available',
+                              '${item.availableQuantity}/${item.totalQuantity} Available'
+                              '${item.activeLeasesCount > 0 ? " • ${item.activeLeasesCount} Rented" : ""}'
+                              '${item.reservedCount > 0 ? " • ${item.reservedCount} Reserved" : ""}',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
@@ -339,6 +341,47 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                     itemBuilder: (context, index) {
                       final unit = _units[index];
 
+                      // Check if physical unit is assigned to an active future reservation
+                      final Set<String> reservedUnitIds = {};
+                      for (final l in itemLeases) {
+                        if (l.status == 'reserved' || l.status == 'upcoming') {
+                          for (final line in l.leaseItems) {
+                            for (final sub in line.leasedSubItems) {
+                              if (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty) {
+                                reservedUnitIds.add(sub.leaseItemUnitId!);
+                              }
+                            }
+                          }
+                        }
+                      }
+
+                      final isUnitReserved = reservedUnitIds.contains(unit.id);
+                      final isUnitRented = unit.status.toLowerCase() == 'rented';
+                      final isUnitDamaged = unit.status.toLowerCase() == 'maintenance' || unit.status.toLowerCase() == 'damaged';
+                      final isUnitLost = unit.status.toLowerCase() == 'lost';
+
+                      String displayUnitStatus = 'AVAILABLE';
+                      Color badgeBgColor = isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5);
+                      Color badgeTextColor = AppColors.primaryLight;
+
+                      if (isUnitDamaged) {
+                        displayUnitStatus = 'DAMAGED';
+                        badgeBgColor = isDark ? const Color(0xFF3B2314) : const Color(0xFFFEF3C7);
+                        badgeTextColor = Colors.amber.shade800;
+                      } else if (isUnitLost) {
+                        displayUnitStatus = 'LOST';
+                        badgeBgColor = isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6);
+                        badgeTextColor = AppColors.errorRed;
+                      } else if (isUnitRented) {
+                        displayUnitStatus = 'RENTED';
+                        badgeBgColor = isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow;
+                        badgeTextColor = AppColors.tertiaryAmber;
+                      } else if (isUnitReserved) {
+                        displayUnitStatus = 'RESERVED';
+                        badgeBgColor = isDark ? const Color(0xFF261D3B) : const Color(0xFFF3E8FF);
+                        badgeTextColor = Colors.purple.shade700;
+                      }
+
                       return Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -369,17 +412,15 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: unit.isAvailable
-                                        ? (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5))
-                                        : (isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow),
+                                    color: badgeBgColor,
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
-                                    unit.status.toUpperCase(),
+                                    displayUnitStatus,
                                     style: TextStyle(
                                       fontSize: 9,
                                       fontWeight: FontWeight.bold,
-                                      color: unit.isAvailable ? AppColors.primaryLight : AppColors.tertiaryAmber,
+                                      color: badgeTextColor,
                                     ),
                                   ),
                                 ),
@@ -391,21 +432,40 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                               const Text('Component Units:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primary)),
                               const SizedBox(height: 4),
                               ...unit.components.map((comp) {
+                                final cSt = comp.status.toLowerCase();
+                                String displayCompStatus = (cSt == 'maintenance' || cSt == 'in_maintenance') ? 'damaged' : cSt;
+                                Color compTextColor = AppColors.primaryLight;
+
+                                if (cSt == 'maintenance' || cSt == 'damaged' || cSt == 'in_maintenance') {
+                                  compTextColor = Colors.amber.shade800;
+                                } else if (cSt == 'lost') {
+                                  compTextColor = AppColors.errorRed;
+                                } else if (cSt == 'rented') {
+                                  compTextColor = AppColors.tertiaryAmber;
+                                } else if (isUnitReserved && cSt == 'available') {
+                                  displayCompStatus = 'reserved';
+                                  compTextColor = Colors.purple.shade700;
+                                }
+
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 3),
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Text(
-                                        '• ${comp.componentName} (${comp.assetCode})${comp.serialNumber != null ? " [SN: ${comp.serialNumber}]" : ""}',
-                                        style: const TextStyle(fontSize: 11),
+                                      Expanded(
+                                        child: Text(
+                                          '• ${comp.componentName} (${comp.assetCode})${comp.serialNumber != null && comp.serialNumber!.isNotEmpty ? " [SN: ${comp.serialNumber}]" : ""}',
+                                          style: const TextStyle(fontSize: 11),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
+                                      const SizedBox(width: 8),
                                       Text(
-                                        comp.status,
+                                        displayCompStatus,
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: comp.isAvailable ? AppColors.primaryLight : AppColors.errorRed,
+                                          color: compTextColor,
                                         ),
                                       ),
                                     ],

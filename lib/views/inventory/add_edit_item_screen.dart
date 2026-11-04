@@ -51,6 +51,7 @@ class PhysicalSetInput {
   String? unitId;
   String assetCode;
   int unitNumber;
+  String status;
   Map<String, int> componentQuantities; // componentName -> qty
   List<InventoryComponentUnitModel> existingCompUnits;
 
@@ -58,6 +59,7 @@ class PhysicalSetInput {
     this.unitId,
     required this.assetCode,
     required this.unitNumber,
+    this.status = 'available',
     required this.componentQuantities,
     this.existingCompUnits = const [],
   });
@@ -453,6 +455,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
               unitId: existing.id,
               assetCode: existing.assetCode,
               unitNumber: existing.unitNumber > 0 ? existing.unitNumber : setNum,
+              status: existing.status,
               componentQuantities: savedCompMap,
               existingCompUnits: existing.components,
             ),
@@ -506,6 +509,18 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   }
 
   Future<void> _handleFinalSave() async {
+    if (_selectedCategory.trim().isEmpty ||
+        _selectedCategory.trim().toLowerCase() == 'no category configured' ||
+        _selectedCategory.trim().toLowerCase() == 'select category') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Category selection is required. Please select or manage a category.'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
@@ -632,7 +647,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
           storeId: store.id,
           assetCode: setInput.assetCode,
           unitNumber: setInput.unitNumber,
-          status: 'available',
+          status: setInput.status,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
           components: compUnits,
@@ -1172,11 +1187,19 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () {
+                    onPressed: () async {
+                      final catCubit = context.read<CategoryCubit>();
                       Navigator.pop(ctx);
-                      Navigator.of(context).push(
+                      await Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const CategoryListScreen()),
                       );
+                      await catCubit.loadCategories();
+                      final catState = catCubit.state;
+                      if (mounted && catState is CategoryLoaded && catState.categories.isNotEmpty) {
+                        setState(() {
+                          _selectedCategory = catState.categoryNames.last;
+                        });
+                      }
                     },
                     child: const Text('Manage', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
@@ -1294,10 +1317,18 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
             children: [
               const Text('Category Classification', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               TextButton(
-                onPressed: () {
-                  Navigator.of(context).push(
+                onPressed: () async {
+                  final catCubit = context.read<CategoryCubit>();
+                  await Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const CategoryListScreen()),
                   );
+                  await catCubit.loadCategories();
+                  final catState = catCubit.state;
+                  if (mounted && catState is CategoryLoaded && catState.categories.isNotEmpty) {
+                    setState(() {
+                      _selectedCategory = catState.categoryNames.last;
+                    });
+                  }
                 },
                 child: const Text('Manage Categories', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
               ),

@@ -25,6 +25,7 @@ import '../../viewmodels/customer/customer_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
 import '../../viewmodels/inventory/inventory_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
+import '../../viewmodels/lease/lease_state.dart';
 import '../profile/subscription_paywall_screen.dart';
 import 'in_app_camera_screen.dart';
 
@@ -65,6 +66,20 @@ class LeaseItemQuantity {
 
   double get totalDailyRate => effectiveRateDaily * pieces;
   double get totalDepositExpected => item.depositAmount * pieces;
+}
+
+class ConflictingUnitInfo {
+  final String assetCode;
+  final String unitNumberText;
+  final DateTime conflictStart;
+  final DateTime conflictEnd;
+
+  ConflictingUnitInfo({
+    required this.assetCode,
+    required this.unitNumberText,
+    required this.conflictStart,
+    required this.conflictEnd,
+  });
 }
 
 class CreateLeaseScreen extends StatefulWidget {
@@ -141,13 +156,142 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
     _retrieveLostData();
   }
 
+  bool _isUnitAvailableForDates(InventoryUnitModel u, String itemId) {
+    final st = u.status.toLowerCase();
+    if (st == 'maintenance' || st == 'lost' || st == 'damaged') return false;
+
+    final leaseState = context.read<LeaseCubit>().state;
+    final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
+
+    for (final lease in allLeases) {
+      if (lease.itemId == itemId || lease.leaseItems.any((li) => li.itemId == itemId)) {
+        if (lease.status == 'active' || lease.status == 'reserved' || lease.status == 'upcoming') {
+          final isOverlapping = _startTime.isBefore(lease.expectedEndTime) &&
+              _expectedEndTime.isAfter(lease.startTime);
+
+          if (isOverlapping) {
+            for (final li in lease.leaseItems) {
+              for (final sub in li.leasedSubItems) {
+                if (sub.leaseItemUnitId == u.id) {
+                  return false;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  List<ConflictingUnitInfo> _getConflictingUnitWarnings() {
+    final List<ConflictingUnitInfo> conflicts = [];
+    final Set<String> processedKeys = {};
+    final leaseState = context.read<LeaseCubit>().state;
+    final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
+
+    for (final line in _selectedLeaseItems) {
+      for (final unit in line.selectedUnits) {
+        for (final lease in allLeases) {
+          final key = '${unit.id}_${lease.id}';
+          if (processedKeys.contains(key)) continue;
+
+          if (lease.itemId == line.item.id || lease.leaseItems.any((li) => li.itemId == line.item.id)) {
+            if (lease.status == 'active' || lease.status == 'reserved' || lease.status == 'upcoming') {
+              final isOverlapping = _startTime.isBefore(lease.expectedEndTime) &&
+                  _expectedEndTime.isAfter(lease.startTime);
+
+              if (isOverlapping) {
+                bool matched = false;
+                for (final li in lease.leaseItems) {
+                  for (final sub in li.leasedSubItems) {
+                    if (sub.leaseItemUnitId == unit.id) {
+                      matched = true;
+                      break;
+                    }
+                  }
+                  if (matched) break;
+                }
+
+                if (matched && processedKeys.add(key)) {
+                  conflicts.add(ConflictingUnitInfo(
+                    assetCode: unit.assetCode,
+                    unitNumberText: 'Physical Set #${unit.unitNumber}',
+                    conflictStart: lease.startTime,
+                    conflictEnd: lease.expectedEndTime,
+                  ));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return conflicts;
+  }
+
+  Widget _buildConflictWarningCard(List<ConflictingUnitInfo> conflicts, bool isDark) {
+    if (conflicts.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.errorRed, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Schedule Conflict Detected',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...conflicts.map((info) {
+            final startFmt = DateFormat('dd MMM yyyy, hh:mm a').format(info.conflictStart);
+            final endFmt = DateFormat('dd MMM yyyy, hh:mm a').format(info.conflictEnd);
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                '• Physical Set ${info.assetCode} (${info.unitNumberText}) is reserved from $startFmt to $endFmt.',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.red.shade200 : const Color(0xFF991B1B),
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 4),
+          Text(
+            'Please change your lease schedule times or remove this set from your selection.',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadUnitsForLine(LeaseItemQuantity line) async {
     try {
       final units = await InventoryUnitRepository().getUnitsForProduct(line.item.id);
       if (mounted) {
         setState(() {
           line.loadedUnits = units;
-          final available = units.where((u) => u.isAvailable).toList();
+          final available = units.where((u) => _isUnitAvailableForDates(u, line.item.id)).toList();
           line.selectedUnits = available.take(line.pieces).toList();
         });
       }
@@ -473,7 +617,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       }
 
       final itemsSummary = _selectedLeaseItems.map((li) => '${li.pieces}x ${li.item.name}').join(', ');
-      final bool isFutureDate = _startTime.isAfter(DateTime.now().add(const Duration(hours: 4)));
+      final bool isFutureDate = _startTime.isAfter(DateTime.now().add(const Duration(minutes: 15)));
       final initialStatus = isFutureDate ? 'reserved' : 'active';
 
       // 3. Create 1 Single Lease Order with LeaseItemModel line items and LeasedSubItemModel component handovers/exclusions
@@ -504,6 +648,10 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
             for (final comp in unit.components) {
               final isExcluded = excludedSet.contains(comp.id);
 
+              final String compConditionStatus = isExcluded
+                  ? 'available'
+                  : (initialStatus == 'reserved' ? 'reserved' : 'rented');
+
               lineLeasedSubItems.add(LeasedSubItemModel(
                 id: UuidGenerator.generateV4(),
                 leaseId: leaseId,
@@ -517,7 +665,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                 serialNumber: comp.serialNumber,
                 replacementCost: comp.replacementCost,
                 isExcluded: isExcluded,
-                conditionStatus: isExcluded ? 'available' : 'rented',
+                conditionStatus: compConditionStatus,
                 notes: isExcluded ? 'Excluded from rental handover' : null,
                 createdAt: DateTime.now(),
                 updatedAt: DateTime.now(),
@@ -766,9 +914,12 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
     final storeState = context.watch<StoreCubit>().state;
     final currency = storeState is StoreLoaded ? storeState.store.currencySymbol : '₹';
 
-    final bool isFutureDate = _startTime.isAfter(DateTime.now().add(const Duration(hours: 4)));
+    final bool isFutureDate = _startTime.isAfter(DateTime.now().add(const Duration(minutes: 15)));
     final String ctaLabel = isFutureDate ? 'Reserve for Future & Issue Receipt' : 'Confirm Lease & Issue Receipt';
     final IconData ctaIcon = isFutureDate ? Icons.event_available : Icons.assignment_turned_in;
+
+    final conflicts = _getConflictingUnitWarnings();
+    final bool hasUnitConflicts = conflicts.isNotEmpty;
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -788,6 +939,10 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
 
             // 2. Timeline
             _buildTimelineCard(context, isDark),
+            if (hasUnitConflicts) ...[
+              const SizedBox(height: 12),
+              _buildConflictWarningCard(conflicts, isDark),
+            ],
             const SizedBox(height: 16),
 
             // 3. Customer
@@ -804,10 +959,16 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
 
             // 6. Upfront Deposit
             _buildUpfrontPaymentCard(context, currency, isDark),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
+
+            // Conflict Warning Banner above Submit Button
+            if (hasUnitConflicts) ...[
+              _buildConflictWarningCard(conflicts, isDark),
+              const SizedBox(height: 16),
+            ],
 
             ElevatedButton(
-              onPressed: _isSaving ? null : _handleDispatch,
+              onPressed: (_isSaving || hasUnitConflicts) ? null : _handleDispatch,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 minimumSize: const Size.fromHeight(50),
@@ -1134,9 +1295,9 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
                                 padding: const EdgeInsets.all(4),
                                 onPressed: () {
                                   setState(() {
-                                    if (line.pieces < line.item.availableQuantity) {
+                                    if (line.pieces < line.item.totalQuantity) {
                                       line.pieces++;
-                                      final avail = line.loadedUnits.where((u) => u.isAvailable && !line.selectedUnits.contains(u)).firstOrNull;
+                                      final avail = line.loadedUnits.where((u) => _isUnitAvailableForDates(u, line.item.id) && !line.selectedUnits.contains(u)).firstOrNull;
                                       if (avail != null) line.selectedUnits.add(avail);
                                     }
                                     _updateDepositIfFull();

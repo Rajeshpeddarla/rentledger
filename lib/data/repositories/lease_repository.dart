@@ -189,10 +189,10 @@ class LeaseRepository {
 
     final user = _client.auth.currentUser;
     if (user != null) {
+      // 1. Primary Execution Path: Stored Procedure RPC Transaction
       try {
         final Map<String, dynamic> fullPayload = lease.copyWith(storeId: user.id).toDatabaseJson();
 
-        // Convert leaseItems & leasedSubItems into nested JSON for single RPC transaction
         final List<Map<String, dynamic>> itemsJson = [];
         for (final line in lease.leaseItems) {
           final lineMap = line.copyWith(leaseId: lease.id, storeId: user.id).toJson();
@@ -201,6 +201,7 @@ class LeaseRepository {
             final subMap = sub.copyWith(leaseId: lease.id, leaseItemId: line.id, storeId: user.id).toDatabaseJson();
             if (sub.leaseItemUnitId != null) subMap['lease_item_unit_id'] = sub.leaseItemUnitId;
             if (sub.inventoryComponentUnitId != null) subMap['inventory_component_unit_id'] = sub.inventoryComponentUnitId;
+            subMap['inspection_status'] = 'rented';
             subItemsJson.add(subMap);
           }
           lineMap['leased_sub_items'] = subItemsJson;
@@ -208,15 +209,22 @@ class LeaseRepository {
         }
         fullPayload['lease_items'] = itemsJson;
 
-        debugPrint('--> [CREATE LEASE RPC] Executing single-request transaction for lease ${lease.id}');
+        debugPrint('--> [CREATE LEASE RPC] Executing stored procedure transaction for lease ${lease.id}');
         final res = await _client.rpc('create_lease_transaction', params: {
           'p_lease': fullPayload,
         });
 
-        debugPrint('--> [CREATE LEASE RPC SUCCESS] Transaction completed in 1 request: $res');
+        debugPrint('--> [CREATE LEASE RPC SUCCESS] Stored procedure completed in 1 request: $res');
+
+        final index = _leases.indexWhere((l) => l.id == lease.id);
+        if (index >= 0) {
+          _leases[index] = lease;
+        } else {
+          _leases.insert(0, lease);
+        }
         return lease;
       } catch (rpcErr) {
-        debugPrint('--> [CREATE LEASE RPC WARNING] Falling back to sequential execution: $rpcErr');
+        debugPrint('--> [CREATE LEASE RPC WARNING] Stored procedure error, running fallback: $rpcErr');
       }
 
       String? insertedLeaseId;
@@ -399,17 +407,17 @@ class LeaseRepository {
                     .eq('id', sub.id);
 
                 final subStatus = sub.conditionStatus.toLowerCase();
-                final targetStatus = (subStatus == 'maintenance' || subStatus == 'damaged')
-                    ? 'maintenance'
+                final targetStatus = (subStatus == 'damaged' || subStatus == 'maintenance' || subStatus == 'in_maintenance')
+                    ? 'damaged'
                     : (subStatus == 'lost' ? 'lost' : 'available');
 
-                // Aggregate unit status (maintenance/damaged > lost > available)
+                // Aggregate unit status (damaged > lost > available)
                 final unitId = sub.leaseItemUnitId;
                 if (unitId != null && unitId.isNotEmpty) {
                   final currUnitSt = unitFinalStatusMap[unitId] ?? 'available';
-                  if (targetStatus == 'maintenance') {
-                    unitFinalStatusMap[unitId] = 'maintenance';
-                  } else if (targetStatus == 'lost' && currUnitSt != 'maintenance') {
+                  if (targetStatus == 'damaged') {
+                    unitFinalStatusMap[unitId] = 'damaged';
+                  } else if (targetStatus == 'lost' && currUnitSt != 'damaged') {
                     unitFinalStatusMap[unitId] = 'lost';
                   } else if (!unitFinalStatusMap.containsKey(unitId)) {
                     unitFinalStatusMap[unitId] = 'available';
@@ -564,11 +572,27 @@ class LeaseRepository {
               .eq('lease_id', leaseId);
         } catch (_) {}
 
-        // Update lease_item_units inspection status
+        // Update lease_item_units inspection status and populate returned_at
         try {
           await _client
               .from('lease_item_units')
-              .update({'inspection_status': 'cancelled', 'returned_at': DateTime.now().toIso8601String()})
+              .update({
+                'inspection_status': 'inspected_good',
+                'returned_at': DateTime.now().toIso8601String(),
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('lease_id', leaseId);
+        } catch (_) {}
+
+        // Update leased_sub_items condition status and populate returned_at
+        try {
+          await _client
+              .from('leased_sub_items')
+              .update({
+                'condition_status': 'available',
+                'returned_at': DateTime.now().toIso8601String(),
+                'updated_at': DateTime.now().toIso8601String(),
+              })
               .eq('lease_id', leaseId);
         } catch (_) {}
 

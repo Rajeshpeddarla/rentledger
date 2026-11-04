@@ -126,11 +126,11 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
                         searchQuery = val;
                       });
                     },
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       hintText: 'Search country or currency...',
-                      prefixIcon: const Icon(Icons.search, size: 20),
+                      prefixIcon: Icon(Icons.search, size: 20),
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      contentPadding: EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
 
@@ -286,7 +286,7 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
     final selectedCountryInfo = CountryCurrency.getCountryByName(_selectedCountry);
 
     return Scaffold(
-      backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+      backgroundColor: isDark ? AppColors.darkSurface : const Color(0xFFEFF7F4),
       body: BlocListener<StoreCubit, StoreState>(
         listener: (context, state) {
           if (state is StoreError) {
@@ -324,251 +324,631 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
             );
           }
         },
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(
-                        Icons.storefront,
-                        size: 32,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      _isSignInMode ? 'Welcome Back' : 'Set Up Your Store',
-                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _isSignInMode
-                          ? 'Sign in with your linked account to restore all your cloud rental data.'
-                          : 'Start tracking rentals, security deposits, and condition receipts in seconds.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: isDark
-                                ? AppColors.darkOnSurfaceVariant
-                                : AppColors.lightOnSurfaceVariant,
-                          ),
-                    ),
-                    const SizedBox(height: 32),
-                    if (!_isSignInMode) ...[
-                      Text(
-                        'Business / Store Name',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. Apex Camera & Equipment Rentals',
-                          prefixIcon: Icon(Icons.business),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return 'Please enter your store name';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Store Country / Location',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
+        child: Stack(
+          children: [
+            // 1. Top Right Background Light Green Curves
+            if (!isDark)
+              Positioned(
+                top: 0,
+                right: 0,
+                width: MediaQuery.of(context).size.width * 0.75,
+                height: 280,
+                child: CustomPaint(
+                  painter: TopCurvesPainter(),
+                ),
+              ),
 
-                      // Custom Bottom Sheet Trigger Card Field
-                      InkWell(
-                        onTap: _showCountryPickerBottomSheet,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isDark ? AppColors.darkCard : Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 38,
-                                height: 38,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  selectedCountryInfo.flag,
-                                  style: const TextStyle(fontSize: 20),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      selectedCountryInfo.name,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Default Currency: ${selectedCountryInfo.symbol} (${selectedCountryInfo.code})',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Icon(
-                                Icons.unfold_more_rounded,
-                                color: isDark ? AppColors.primaryLight : AppColors.primary,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+            // 2. Bottom Wave Curves
+            if (!isDark)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 140,
+                child: CustomPaint(
+                  painter: BottomWavesPainter(),
+                ),
+              ),
 
-                      const SizedBox(height: 10),
-
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: (isDark ? AppColors.primaryLight : AppColors.primary).withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
+            // 3. Main Scrollable Screen Content
+            SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Top Header Section: Logo + Store Graphic + Title
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.info_outline, size: 16, color: isDark ? AppColors.primaryLight : AppColors.primary),
-                            const SizedBox(width: 8),
                             Expanded(
-                              child: Text(
-                                'Currency auto-set to ${selectedCountryInfo.symbol} based on ${selectedCountryInfo.name} location.',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark ? AppColors.primaryLight : AppColors.primary,
+                              flex: 5,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Logo Box
+                                  Container(
+                                    width: 60,
+                                    height: 60,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: 0.08),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: Image.asset(
+                                        'assets/logo.png',
+                                        width: 60,
+                                        height: 60,
+                                        fit: BoxFit.contain,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+
+                                  // Title with underline accent
+                                  RichText(
+                                    text: TextSpan(
+                                      style: TextStyle(
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.w800,
+                                        color: isDark ? Colors.white : const Color(0xFF0F2620),
+                                        height: 1.15,
+                                      ),
+                                      children: [
+                                        TextSpan(text: _isSignInMode ? 'Welcome ' : 'Set Up Your\n'),
+                                        TextSpan(
+                                          text: _isSignInMode ? 'Back' : 'Store',
+                                          style: const TextStyle(
+                                            color: Color(0xFF0B664D),
+                                            decoration: TextDecoration.underline,
+                                            decorationColor: Color(0xFF0B664D),
+                                            decorationThickness: 2,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _isSignInMode
+                                        ? 'Sign in with your linked account to restore all your cloud rental data.'
+                                        : 'Start tracking rentals, security deposits, and condition receipts in seconds.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark ? AppColors.darkOnSurfaceVariant : const Color(0xFF4A605A),
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+
+                            // Storefront Graphic Image touching the right screen edge
+                            Expanded(
+                              flex: 4,
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: Transform.translate(
+                                  offset: const Offset(20, 0),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(20)),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.08),
+                                          blurRadius: 12,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: const BorderRadius.horizontal(left: Radius.circular(20)),
+                                      child: Image.asset(
+                                        'assets/setupstore.jpeg',
+                                        height: 140,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    ] else ...[
-                      Text(
-                        'Email Address',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          hintText: 'owner@store.com',
-                          prefixIcon: Icon(Icons.email_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Password',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        decoration: InputDecoration(
-                          hintText: '••••••••',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                              size: 20,
+
+                        const SizedBox(height: 20),
+
+                        // 3 Feature Highlight Cards Row
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildFeatureCard(
+                                icon: Icons.calendar_today_outlined,
+                                title: 'Track',
+                                subtitle: 'Rentals',
+                                isDark: isDark,
+                              ),
                             ),
-                            onPressed: () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
-                          ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _buildFeatureCard(
+                                icon: Icons.shield_outlined,
+                                title: 'Manage',
+                                subtitle: 'Deposits',
+                                isDark: isDark,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _buildFeatureCard(
+                                icon: Icons.assignment_outlined,
+                                title: 'Condition',
+                                subtitle: 'Receipts',
+                                isDark: isDark,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                    const SizedBox(height: 32),
-                    BlocBuilder<StoreCubit, StoreState>(
-                      builder: (context, state) {
-                        final isLoading = state is StoreLoading;
-                        return ElevatedButton(
-                          onPressed: isLoading ? null : _handleSubmit,
-                          child: isLoading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                  ),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+
+                        const SizedBox(height: 20),
+
+                        // Form Container Card (Elevated White Box)
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: isDark ? AppColors.darkCard : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: isDark ? AppColors.darkBorder : Colors.grey.shade200),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+                                blurRadius: 16,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (!_isSignInMode) ...[
+                                // Field 1: Business / Store Name
+                                Row(
                                   children: [
-                                    Text(_isSignInMode ? 'Sign In & Restore' : 'Get Started Now'),
-                                    const SizedBox(width: 8),
-                                    const Icon(Icons.arrow_forward, size: 18),
+                                    Icon(Icons.storefront_outlined, size: 18, color: isDark ? AppColors.primaryLight : const Color(0xFF0B664D)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Business / Store Name',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : const Color(0xFF0F2620),
+                                      ),
+                                    ),
                                   ],
                                 ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    Center(
-                      child: TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _isSignInMode = !_isSignInMode;
-                          });
-                        },
-                        child: Text(
-                          _isSignInMode
-                              ? 'New to RentLedger? Set up a new store'
-                              : 'Already have a Pro account? Sign In',
-                          style: TextStyle(
-                            color: isDark ? AppColors.primaryLight : AppColors.primary,
-                            fontWeight: FontWeight.w600,
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  controller: _nameController,
+                                  textCapitalization: TextCapitalization.words,
+                                  decoration: InputDecoration(
+                                    hintText: 'Apex Rentals & Tools',
+                                    prefixIcon: const Icon(Icons.storefront_outlined),
+                                    fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF7FAFA),
+                                    filled: true,
+                                  ),
+                                  validator: (val) {
+                                    if (val == null || val.trim().isEmpty) {
+                                      return 'Please enter your store name';
+                                    }
+                                    return null;
+                                  },
+                                ),
+
+                                const SizedBox(height: 18),
+
+                                // Field 2: Store Country / Location
+                                Row(
+                                  children: [
+                                    Icon(Icons.location_on_outlined, size: 18, color: isDark ? AppColors.primaryLight : const Color(0xFF0B664D)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Store Country / Location',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : const Color(0xFF0F2620),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+
+                                // Custom Country Selector Card Field
+                                InkWell(
+                                  onTap: _showCountryPickerBottomSheet,
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF7FAFA),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: isDark ? AppColors.darkBorder : Colors.grey.shade300,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 38,
+                                          height: 38,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: isDark ? AppColors.darkCard : Colors.white,
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: isDark ? AppColors.darkBorder : Colors.grey.shade200),
+                                          ),
+                                          child: Text(
+                                            selectedCountryInfo.flag,
+                                            style: const TextStyle(fontSize: 22),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                selectedCountryInfo.name,
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Default Currency: ${selectedCountryInfo.symbol} (${selectedCountryInfo.code})',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(
+                                          Icons.keyboard_arrow_down,
+                                          color: isDark ? AppColors.primaryLight : const Color(0xFF0B664D),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 12),
+
+                                // Info Banner
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE8F6F1),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFC7EBDD)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.info_outline, size: 16, color: Color(0xFF0B664D)),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Currency will auto-set to ${selectedCountryInfo.symbol} based on your location.',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF0B664D),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ] else ...[
+                                // Sign In Mode Form
+                                Row(
+                                  children: [
+                                    Icon(Icons.email_outlined, size: 18, color: isDark ? AppColors.primaryLight : const Color(0xFF0B664D)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Email Address',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : const Color(0xFF0F2620),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  controller: _emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  decoration: InputDecoration(
+                                    hintText: 'owner@store.com',
+                                    prefixIcon: const Icon(Icons.email_outlined),
+                                    fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF7FAFA),
+                                    filled: true,
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+                                Row(
+                                  children: [
+                                    Icon(Icons.lock_outline, size: 18, color: isDark ? AppColors.primaryLight : const Color(0xFF0B664D)),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Password',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : const Color(0xFF0F2620),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  controller: _passwordController,
+                                  obscureText: _obscurePassword,
+                                  decoration: InputDecoration(
+                                    hintText: '••••••••',
+                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    fillColor: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF7FAFA),
+                                    filled: true,
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                        size: 20,
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _obscurePassword = !_obscurePassword;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
+
+                              const SizedBox(height: 24),
+
+                              // Submit Action Button
+                              BlocBuilder<StoreCubit, StoreState>(
+                                builder: (context, state) {
+                                  final isLoading = state is StoreLoading;
+                                  return SizedBox(
+                                    width: double.infinity,
+                                    height: 52,
+                                    child: ElevatedButton(
+                                      onPressed: isLoading ? null : _handleSubmit,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF0B664D),
+                                        elevation: 0,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      child: isLoading
+                                          ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                              ),
+                                            )
+                                          : Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Text(
+                                                  _isSignInMode ? 'Sign In & Restore' : 'Get Started Now',
+                                                  style: const TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                const Icon(Icons.arrow_forward, size: 18, color: Colors.white),
+                                              ],
+                                            ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
                         ),
-                      ),
+
+                        const SizedBox(height: 24),
+
+                        // Bottom Account Toggle Text
+                        Center(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _isSignInMode = !_isSignInMode;
+                              });
+                            },
+                            child: RichText(
+                              text: TextSpan(
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: isDark ? AppColors.darkOnSurfaceVariant : const Color(0xFF4A605A),
+                                ),
+                                children: [
+                                  TextSpan(
+                                    text: _isSignInMode
+                                        ? 'Need to set up a new store? '
+                                        : 'Already have a Pro account? ',
+                                  ),
+                                  TextSpan(
+                                    text: _isSignInMode ? 'Create Store' : 'Sign In',
+                                    style: const TextStyle(
+                                      color: Color(0xFF0B664D),
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
+
+  Widget _buildFeatureCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool isDark,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : const Color(0xFFEBF7F2),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppColors.darkBorder : const Color(0xFFD4EFE4),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkSurfaceLow : Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFCBEBDC)),
+            ),
+            child: Icon(
+              icon,
+              size: 16,
+              color: const Color(0xFF0B664D),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF0F2620),
+                    height: 1.1,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF0F2620),
+                    height: 1.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// CustomPainter for Top-Right Light Green Organic Background Curves
+class TopCurvesPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint1 = Paint()
+      ..color = const Color(0xFFE1F5EC).withValues(alpha: 0.8)
+      ..style = PaintingStyle.fill;
+
+    final path1 = Path();
+    path1.moveTo(size.width * 0.1, 0);
+    path1.quadraticBezierTo(size.width * 0.4, size.height * 0.5, size.width, size.height * 0.85);
+    path1.lineTo(size.width, 0);
+    path1.close();
+    canvas.drawPath(path1, paint1);
+
+    final paint2 = Paint()
+      ..color = const Color(0xFFCDEDE0).withValues(alpha: 0.5)
+      ..style = PaintingStyle.fill;
+
+    final path2 = Path();
+    path2.moveTo(size.width * 0.35, 0);
+    path2.quadraticBezierTo(size.width * 0.65, size.height * 0.7, size.width, size.height * 0.95);
+    path2.lineTo(size.width, 0);
+    path2.close();
+    canvas.drawPath(path2, paint2);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// CustomPainter for Bottom Light Green Wave Curves below Sign In text
+class BottomWavesPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint1 = Paint()
+      ..color = const Color(0xFFC7EBDD).withValues(alpha: 0.6)
+      ..style = PaintingStyle.fill;
+
+    final path1 = Path();
+    path1.moveTo(0, size.height * 0.4);
+    path1.quadraticBezierTo(size.width * 0.5, size.height * 0.05, size.width, size.height * 0.35);
+    path1.lineTo(size.width, size.height);
+    path1.lineTo(0, size.height);
+    path1.close();
+    canvas.drawPath(path1, paint1);
+
+    final paint2 = Paint()
+      ..color = const Color(0xFF81D7B1).withValues(alpha: 0.7)
+      ..style = PaintingStyle.fill;
+
+    final path2 = Path();
+    path2.moveTo(0, size.height * 0.65);
+    path2.quadraticBezierTo(size.width * 0.45, size.height * 0.3, size.width, size.height * 0.55);
+    path2.lineTo(size.width, size.height);
+    path2.lineTo(0, size.height);
+    path2.close();
+    canvas.drawPath(path2, paint2);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

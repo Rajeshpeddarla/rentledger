@@ -85,13 +85,28 @@ class _SecureAccountSheetState extends State<SecureAccountSheet> {
             Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
+                    color: Colors.white,
                     borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                  child: const Icon(Icons.shield_outlined, color: Colors.white, size: 22),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(
+                      'assets/logo.png',
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

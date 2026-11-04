@@ -153,8 +153,8 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
           .toList();
 
       String parentUnitTargetStatus = 'available';
-      if (compStatuses.any((s) => s == 'maintenance' || s == 'damaged' || s == 'in_maintenance')) {
-        parentUnitTargetStatus = 'maintenance';
+      if (compStatuses.any((s) => s == 'damaged' || s == 'maintenance' || s == 'in_maintenance')) {
+        parentUnitTargetStatus = 'damaged';
       } else if (compStatuses.any((s) => s == 'lost' || s == 'needed_restock')) {
         parentUnitTargetStatus = 'lost';
       }
