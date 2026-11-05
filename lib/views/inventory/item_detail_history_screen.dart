@@ -218,7 +218,9 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                             '${item.availableQuantity}/${item.totalQuantity} Available'
                                 '${item.activeLeasesCount > 0 ? " • ${item.activeLeasesCount} Rented" : ""}'
                                 '${item.maintenanceCount > 0 ? " • ${item.maintenanceCount} Damaged" : ""}'
-                                '${item.lostCount > 0 ? " • ${item.lostCount} Lost" : ""}',
+                                '${item.inMaintenanceCount > 0 ? " • ${item.inMaintenanceCount} In Maintenance" : ""}'
+                                '${item.lostCount > 0 ? " • ${item.lostCount} Lost" : ""}'
+                                '${item.neededRestockCount > 0 ? " • ${item.neededRestockCount} Needed Restock" : ""}',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
@@ -360,9 +362,12 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                       }
 
                       final isUnitReserved = reservedUnitIds.contains(unit.id);
-                      final isUnitRented = unit.status.toLowerCase() == 'rented';
-                      final isUnitDamaged = unit.status.toLowerCase() == 'maintenance' || unit.status.toLowerCase() == 'damaged';
-                      final isUnitLost = unit.status.toLowerCase() == 'lost';
+                      final uSt = unit.status.toLowerCase();
+                      final isUnitRented = uSt == 'rented';
+                      final isUnitDamaged = uSt == 'maintenance' || uSt == 'damaged';
+                      final isUnitInMaint = uSt == 'in_maintenance';
+                      final isUnitLost = uSt == 'lost';
+                      final isUnitRestock = uSt == 'needed_restock';
 
                       String displayUnitStatus = 'AVAILABLE';
                       Color badgeBgColor = isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5);
@@ -372,10 +377,18 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                         displayUnitStatus = 'DAMAGED';
                         badgeBgColor = isDark ? const Color(0xFF3B2314) : const Color(0xFFFEF3C7);
                         badgeTextColor = Colors.amber.shade800;
+                      } else if (isUnitInMaint) {
+                        displayUnitStatus = 'IN MAINTENANCE';
+                        badgeBgColor = isDark ? const Color(0xFF3B2E14) : const Color(0xFFFEF3C7);
+                        badgeTextColor = Colors.amber.shade800;
                       } else if (isUnitLost) {
                         displayUnitStatus = 'LOST';
                         badgeBgColor = isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6);
                         badgeTextColor = AppColors.errorRed;
+                      } else if (isUnitRestock) {
+                        displayUnitStatus = 'NEEDED RESTOCK';
+                        badgeBgColor = isDark ? const Color(0xFF2E1C3B) : const Color(0xFFF3E8FF);
+                        badgeTextColor = Colors.purple.shade700;
                       } else if (isUnitRented) {
                         displayUnitStatus = 'RENTED';
                         badgeBgColor = isDark ? AppColors.darkSurfaceLow : AppColors.lightSurfaceLow;
@@ -437,14 +450,23 @@ class _ItemDetailHistoryScreenState extends State<ItemDetailHistoryScreen> {
                               const SizedBox(height: 4),
                               ...unit.components.map((comp) {
                                 final cSt = comp.status.toLowerCase();
-                                String displayCompStatus = (cSt == 'maintenance' || cSt == 'in_maintenance') ? 'damaged' : cSt;
+                                String displayCompStatus = cSt;
                                 Color compTextColor = AppColors.primaryLight;
 
-                                if (cSt == 'maintenance' || cSt == 'damaged' || cSt == 'in_maintenance') {
+                                if (cSt == 'in_maintenance') {
+                                  displayCompStatus = 'in_maintenance';
                                   compTextColor = Colors.amber.shade800;
+                                } else if (cSt == 'maintenance' || cSt == 'damaged') {
+                                  displayCompStatus = 'damaged';
+                                  compTextColor = Colors.amber.shade800;
+                                } else if (cSt == 'needed_restock') {
+                                  displayCompStatus = 'needed_restock';
+                                  compTextColor = Colors.purple.shade700;
                                 } else if (cSt == 'lost') {
+                                  displayCompStatus = 'lost';
                                   compTextColor = AppColors.errorRed;
                                 } else if (cSt == 'rented') {
+                                  displayCompStatus = 'rented';
                                   compTextColor = AppColors.tertiaryAmber;
                                 } else if (isUnitReserved && cSt == 'available') {
                                   displayCompStatus = 'reserved';

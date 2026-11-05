@@ -632,11 +632,23 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                           decoration: BoxDecoration(color: isDark ? const Color(0xFF3B2314) : const Color(0xFFFFF6E5), borderRadius: BorderRadius.circular(4)),
                           child: Text('${item.maintenanceCount} Damaged', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
                         ),
+                      if (item.inMaintenanceCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: isDark ? const Color(0xFF3B2E14) : const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.inMaintenanceCount} In Maintenance', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amber.shade800)),
+                        ),
                       if (item.lostCount > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                           decoration: BoxDecoration(color: isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6), borderRadius: BorderRadius.circular(4)),
                           child: Text('${item.lostCount} Lost', style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                        ),
+                      if (item.neededRestockCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(color: isDark ? const Color(0xFF2E1C3B) : const Color(0xFFF3E8FF), borderRadius: BorderRadius.circular(4)),
+                          child: Text('${item.neededRestockCount} Needed Restock', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.purple.shade700)),
                         ),
                     ],
                   ),

@@ -118,15 +118,18 @@ BEGIN
                     v_unit_id := NULLIF(v_sub_rec->>'lease_item_unit_id', '')::UUID;
                     v_comp_unit_id := NULLIF(v_sub_rec->>'inventory_component_unit_id', '')::UUID;
 
-                    -- Upsert lease_item_units parent checkout row with ON CONFLICT (lease_item_id, inventory_unit_id)
+                    -- Upsert lease_item_units parent checkout row using v_unit_id as PK (matching fallback)
                     IF v_unit_id IS NOT NULL THEN
                         INSERT INTO public.lease_item_units (
                             id, lease_id, lease_item_id, inventory_unit_id,
                             checked_out_at, inspection_status, created_at, updated_at
                         ) VALUES (
-                            gen_random_uuid(), v_lease_id, v_line_id, v_unit_id,
+                            v_unit_id, v_lease_id, v_line_id, v_unit_id,
                             v_start_time, 'rented', NOW(), NOW()
-                        ) ON CONFLICT (lease_item_id, inventory_unit_id) DO UPDATE SET
+                        ) ON CONFLICT (id) DO UPDATE SET
+                            lease_id = EXCLUDED.lease_id,
+                            lease_item_id = EXCLUDED.lease_item_id,
+                            inventory_unit_id = EXCLUDED.inventory_unit_id,
                             checked_out_at = EXCLUDED.checked_out_at,
                             inspection_status = EXCLUDED.inspection_status,
                             updated_at = NOW();
@@ -260,6 +263,25 @@ BEGIN
     END IF;
 
     -- C. Sync Physical Set Units Status & Close lease_item_units
+    UPDATE public.inventory_units iu SET
+        status = CASE
+            WHEN EXISTS (
+                SELECT 1 FROM public.inventory_component_units icu
+                WHERE icu.inventory_unit_id = iu.id
+                AND icu.status IN ('damaged', 'maintenance', 'in_maintenance')
+            ) THEN 'damaged'
+            WHEN EXISTS (
+                SELECT 1 FROM public.inventory_component_units icu
+                WHERE icu.inventory_unit_id = iu.id
+                AND icu.status IN ('lost', 'needed_restock')
+            ) THEN 'lost'
+            ELSE 'available'
+        END,
+        updated_at = NOW()
+    WHERE iu.id IN (
+        SELECT inventory_unit_id FROM public.lease_item_units WHERE lease_id = v_lease_id
+    );
+
     UPDATE public.lease_item_units SET
         returned_at = v_actual_return,
         inspection_status = 'inspected_good',

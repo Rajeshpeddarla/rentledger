@@ -82,8 +82,10 @@ class InventoryRepository {
 
         // 3. Query inventory_units table for realtime unit status counts per item
         final Map<String, int> availableUnitCounts = {};
-        final Map<String, int> maintenanceCounts = {};
+        final Map<String, int> damagedCounts = {};
+        final Map<String, int> inMaintenanceCounts = {};
         final Map<String, int> lostCounts = {};
+        final Map<String, int> neededRestockCounts = {};
 
         try {
           final unitStatusData = await _client
@@ -97,10 +99,14 @@ class InventoryRepository {
             if (iId != null) {
               if (st == 'available') {
                 availableUnitCounts[iId] = (availableUnitCounts[iId] ?? 0) + 1;
-              } else if (st == 'maintenance' || st == 'damaged' || st == 'in_maintenance') {
-                maintenanceCounts[iId] = (maintenanceCounts[iId] ?? 0) + 1;
-              } else if (st == 'lost' || st == 'needed_restock') {
+              } else if (st == 'damaged' || st == 'maintenance') {
+                damagedCounts[iId] = (damagedCounts[iId] ?? 0) + 1;
+              } else if (st == 'in_maintenance') {
+                inMaintenanceCounts[iId] = (inMaintenanceCounts[iId] ?? 0) + 1;
+              } else if (st == 'lost') {
                 lostCounts[iId] = (lostCounts[iId] ?? 0) + 1;
+              } else if (st == 'needed_restock') {
+                neededRestockCounts[iId] = (neededRestockCounts[iId] ?? 0) + 1;
               }
             }
           }
@@ -112,13 +118,15 @@ class InventoryRepository {
             .map((e) {
               final it = InventoryItemModel.fromJson(e as Map<String, dynamic>);
               final activeCount = activeCounts[it.id] ?? 0;
-              final maintCount = maintenanceCounts[it.id] ?? 0;
+              final dmgCount = damagedCounts[it.id] ?? 0;
+              final inMaintCount = inMaintenanceCounts[it.id] ?? 0;
               final lstCount = lostCounts[it.id] ?? 0;
+              final restockCount = neededRestockCounts[it.id] ?? 0;
 
               // Physical available units currently in store
               final physicalAvail = availableUnitCounts.containsKey(it.id)
                   ? availableUnitCounts[it.id]!
-                  : (it.totalQuantity - activeCount - maintCount - lstCount);
+                  : (it.totalQuantity - activeCount - dmgCount - inMaintCount - lstCount - restockCount);
 
               final rawReserved = reservedCounts[it.id] ?? 0;
               // Prevent double deduction: reservedCount cannot exceed currently available physical units
@@ -127,8 +135,10 @@ class InventoryRepository {
               return it.copyWith(
                 activeLeasesCount: activeCount,
                 reservedCount: effectiveReserved,
-                maintenanceCount: maintCount,
+                maintenanceCount: dmgCount,
+                inMaintenanceCount: inMaintCount,
                 lostCount: lstCount,
+                neededRestockCount: restockCount,
               );
             })
             .toList();

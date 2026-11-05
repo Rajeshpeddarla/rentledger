@@ -30,8 +30,10 @@ class InventoryItemModel extends Equatable {
   final int activeLeasesCount; // Leased out
   final int awaitingInspectionCount; // Returned but awaiting inspection
   final int maintenanceCount; // Damaged / under repair
+  final int inMaintenanceCount; // In maintenance / being serviced
   final int reservedCount; // Reserved for future confirmed bookings
   final int lostCount; // Lost / destroyed needing restock
+  final int neededRestockCount; // Needed restock / replacement pending
 
   const InventoryItemModel({
     required this.id,
@@ -59,18 +61,22 @@ class InventoryItemModel extends Equatable {
     this.activeLeasesCount = 0,
     this.awaitingInspectionCount = 0,
     this.maintenanceCount = 0,
+    this.inMaintenanceCount = 0,
     this.reservedCount = 0,
     this.lostCount = 0,
+    this.neededRestockCount = 0,
   });
 
   /// Stock Calculation Formula:
-  /// Available stock = Total stock - Active Leased - AwaitingInspection - Maintenance - Lost
+  /// Available stock = Total stock - Active Leased - AwaitingInspection - Maintenance - InMaintenance - Lost - NeededRestock
   int get availableQuantity {
     final available = totalQuantity -
         activeLeasesCount -
         awaitingInspectionCount -
         maintenanceCount -
-        lostCount;
+        inMaintenanceCount -
+        lostCount -
+        neededRestockCount;
     return available < 0 ? 0 : available;
   }
 
@@ -116,8 +122,10 @@ class InventoryItemModel extends Equatable {
       activeLeasesCount: (json['active_leases_count'] as num?)?.toInt() ?? 0,
       awaitingInspectionCount: (json['awaiting_inspection_count'] as num?)?.toInt() ?? 0,
       maintenanceCount: (json['maintenance_count'] as num?)?.toInt() ?? 0,
+      inMaintenanceCount: (json['in_maintenance_count'] as num?)?.toInt() ?? 0,
       reservedCount: (json['reserved_count'] as num?)?.toInt() ?? 0,
       lostCount: (json['lost_count'] as num?)?.toInt() ?? 0,
+      neededRestockCount: (json['needed_restock_count'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -148,8 +156,10 @@ class InventoryItemModel extends Equatable {
       'active_leases_count': activeLeasesCount,
       'awaiting_inspection_count': awaitingInspectionCount,
       'maintenance_count': maintenanceCount,
+      'in_maintenance_count': inMaintenanceCount,
       'reserved_count': reservedCount,
       'lost_count': lostCount,
+      'needed_restock_count': neededRestockCount,
     };
   }
 
@@ -185,8 +195,10 @@ class InventoryItemModel extends Equatable {
     int? activeLeasesCount,
     int? awaitingInspectionCount,
     int? maintenanceCount,
+    int? inMaintenanceCount,
     int? reservedCount,
     int? lostCount,
+    int? neededRestockCount,
   }) {
     return InventoryItemModel(
       id: id ?? this.id,
@@ -214,8 +226,10 @@ class InventoryItemModel extends Equatable {
       activeLeasesCount: activeLeasesCount ?? this.activeLeasesCount,
       awaitingInspectionCount: awaitingInspectionCount ?? this.awaitingInspectionCount,
       maintenanceCount: maintenanceCount ?? this.maintenanceCount,
+      inMaintenanceCount: inMaintenanceCount ?? this.inMaintenanceCount,
       reservedCount: reservedCount ?? this.reservedCount,
       lostCount: lostCount ?? this.lostCount,
+      neededRestockCount: neededRestockCount ?? this.neededRestockCount,
     );
   }
 
@@ -242,6 +256,14 @@ class InventoryItemModel extends Equatable {
         isTaxInclusive,
         taxEffectiveDate,
         taxLastVerifiedDate,
+        isTaxConfirmed,
+        activeLeasesCount,
+        awaitingInspectionCount,
+        maintenanceCount,
+        inMaintenanceCount,
+        reservedCount,
+        lostCount,
+        neededRestockCount,
         isTaxConfirmed,
         activeLeasesCount,
         awaitingInspectionCount,

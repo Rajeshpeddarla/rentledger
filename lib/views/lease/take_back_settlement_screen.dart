@@ -77,6 +77,89 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
   double _finalBalance = 0.0;
   bool _isSettling = false;
 
+  bool _isLoadingComponents = true;
+  final Map<String, List<SubItemModel>> _itemComponentTemplates = {};
+
+  Future<void> _loadAllItemComponents() async {
+    setState(() => _isLoadingComponents = true);
+
+    final unitRepo = InventoryUnitRepository();
+    final subRepo = SubItemRepository();
+
+    final List<String> itemIds = [];
+    if (widget.lease.leaseItems.isNotEmpty) {
+      for (final line in widget.lease.leaseItems) {
+        if (line.itemId.isNotEmpty && !itemIds.contains(line.itemId)) {
+          itemIds.add(line.itemId);
+        }
+      }
+    } else if (widget.lease.itemId.isNotEmpty) {
+      itemIds.add(widget.lease.itemId);
+    }
+
+    for (final itemId in itemIds) {
+      final List<SubItemModel> compList = [];
+
+      try {
+        final subs = await subRepo.getSubItems(parentItemId: itemId);
+        compList.addAll(subs);
+      } catch (_) {}
+
+      if (compList.isEmpty) {
+        try {
+          final defs = await unitRepo.getDefinitionsForProduct(itemId);
+          for (final d in defs) {
+            compList.add(SubItemModel(
+              id: d.id,
+              parentItemId: itemId,
+              storeId: widget.lease.storeId,
+              name: d.componentName,
+              serialNumber: null,
+              status: 'available',
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+            ));
+          }
+        } catch (_) {}
+      }
+
+      if (compList.isEmpty) {
+        try {
+          final units = await unitRepo.getUnitsForProduct(itemId);
+          if (units.isNotEmpty && units.first.components.isNotEmpty) {
+            for (final c in units.first.components) {
+              compList.add(SubItemModel(
+                id: c.id,
+                parentItemId: itemId,
+                storeId: widget.lease.storeId,
+                name: c.componentName,
+                serialNumber: c.serialNumber,
+                status: 'available',
+                createdAt: DateTime.now(),
+                updatedAt: DateTime.now(),
+              ));
+            }
+          }
+        } catch (_) {}
+      }
+
+      _itemComponentTemplates[itemId] = compList;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoadingComponents = false;
+        for (final compList in _itemComponentTemplates.values) {
+          for (final s in compList) {
+            if (!_subItemStatusMap.containsKey(s.id)) {
+              _subItemStatusMap[s.id] = 'available';
+            }
+          }
+        }
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -96,18 +179,7 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
       _itemStatusMap[widget.lease.itemId] = 'available';
     }
 
-    SubItemRepository().getSubItems(parentItemId: widget.lease.itemId).then((list) {
-      if (mounted && list.isNotEmpty) {
-        setState(() {
-          _subItems = list;
-          for (final s in list) {
-            if (!_subItemStatusMap.containsKey(s.id)) {
-              _subItemStatusMap[s.id] = 'available';
-            }
-          }
-        });
-      }
-    });
+    _loadAllItemComponents();
 
     InventoryUnitRepository().getUnitsForProduct(widget.lease.itemId).then((units) {
       if (mounted && units.isNotEmpty) {
@@ -1459,10 +1531,12 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
       final qty = lineItem?.quantity ?? widget.lease.quantity;
       final sku = lineItem?.item?.displaySku ?? widget.lease.item?.displaySku ?? '-';
 
+      final String currentItemId = lineItem?.itemId ?? widget.lease.itemId;
+
       // Get sub-items / components for this line item
-      final List<dynamic> subItemsList = lineItem != null && lineItem.leasedSubItems.isNotEmpty
+      final List<dynamic> subItemsList = (lineItem != null && lineItem.leasedSubItems.isNotEmpty)
           ? lineItem.leasedSubItems
-          : (i == 0 ? _subItems : []);
+          : (_itemComponentTemplates[currentItemId] ?? _subItems);
 
       // Group sub-items into physical sets / units
       final Map<String, List<dynamic>> groupedUnitsMap = {};
@@ -1477,22 +1551,38 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
           groupedUnitsMap.putIfAbsent(unitKey, () => []).add(sub);
         }
       } else {
-        final totalComps = subItemsList.length;
+        // Replicate full list of sub-components for EACH physical unit set!
         final numSets = qty > 0 ? qty : 1;
-        final compsPerSet = totalComps > 0 ? (totalComps / numSets).ceil() : 1;
+        for (int setIdx = 1; setIdx <= numSets; setIdx++) {
+          final unitKey = 'set_${i}_$setIdx';
+          final List<dynamic> replicatedComps = [];
 
-        if (compsPerSet > 0) {
-          for (int idx = 0; idx < totalComps; idx++) {
-            final setIndex = (idx ~/ compsPerSet) + 1;
-            final unitKey = 'set_$setIndex';
-            groupedUnitsMap.putIfAbsent(unitKey, () => []).add(subItemsList[idx]);
-          }
-        } else {
           for (final sub in subItemsList) {
-            final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
-            groupedUnitsMap.putIfAbsent(subId, () => []).add(sub);
+            if (sub is LeasedSubItemModel) {
+              final String compSetId = '${sub.id}_set_$setIdx';
+              replicatedComps.add(sub.copyWith(id: compSetId));
+            } else if (sub is SubItemModel) {
+              final String compSetId = '${sub.id}_set_$setIdx';
+              replicatedComps.add(SubItemModel(
+                id: compSetId,
+                parentItemId: sub.parentItemId,
+                storeId: sub.storeId,
+                name: sub.name,
+                serialNumber: sub.serialNumber,
+                status: sub.status,
+                createdAt: sub.createdAt,
+                updatedAt: sub.updatedAt,
+              ));
+            }
           }
+          groupedUnitsMap[unitKey] = replicatedComps;
         }
+      }
+
+      debugPrint('--> [TAKE BACK DIAGNOSTIC] Item #$i ($itemName): qty=$qty, subItemsList length=${subItemsList.length}');
+      debugPrint('--> [TAKE BACK DIAGNOSTIC] groupedUnitsMap length=${groupedUnitsMap.length}');
+      for (final entry in groupedUnitsMap.entries) {
+        debugPrint('--> [TAKE BACK DIAGNOSTIC] UnitKey ${entry.key}: ${entry.value.length} components');
       }
 
       // Render a top-level card for EACH Physical Set / Unit!
@@ -1785,6 +1875,23 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
                       ),
                     );
                   }),
+                ] else ...[
+                  const SizedBox(height: 12),
+                  Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  const SizedBox(height: 8),
+                  if (_isLoadingComponents)
+                    const Row(
+                      children: [
+                        SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                        SizedBox(width: 8),
+                        Text('Loading unit components...', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      ],
+                    )
+                  else
+                    Text(
+                      'No sub-components configured for this unit set.',
+                      style: TextStyle(fontSize: 10, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                    ),
                 ],
               ],
             ),

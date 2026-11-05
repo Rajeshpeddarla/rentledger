@@ -381,6 +381,44 @@ class LeaseRepository {
 
     final user = _client.auth.currentUser;
     if (user != null) {
+      // 1. Primary Execution Path: Stored Procedure RPC Transaction
+      try {
+        final Map<String, dynamic> fullPayload = updated.copyWith(storeId: user.id).toDatabaseJson();
+
+        final List<Map<String, dynamic>> itemsJson = [];
+        for (final line in updated.leaseItems) {
+          final lineMap = line.copyWith(leaseId: updated.id, storeId: user.id).toJson();
+          final List<Map<String, dynamic>> subItemsJson = [];
+          for (final sub in line.leasedSubItems) {
+            final subMap = sub.copyWith(leaseId: updated.id, leaseItemId: line.id, storeId: user.id).toDatabaseJson();
+            if (sub.leaseItemUnitId != null) subMap['lease_item_unit_id'] = sub.leaseItemUnitId;
+            if (sub.inventoryComponentUnitId != null) subMap['inventory_component_unit_id'] = sub.inventoryComponentUnitId;
+            subItemsJson.add(subMap);
+          }
+          lineMap['leased_sub_items'] = subItemsJson;
+          itemsJson.add(lineMap);
+        }
+        fullPayload['lease_items'] = itemsJson;
+
+        debugPrint('--> [SETTLE LEASE RPC] Executing stored procedure transaction for lease ${updated.id}');
+        final res = await _client.rpc('return_settle_lease_transaction', params: {
+          'p_settlement': fullPayload,
+        });
+
+        debugPrint('--> [SETTLE LEASE RPC SUCCESS] Stored procedure completed in 1 request: $res');
+
+        final index = _leases.indexWhere((l) => l.id == updated.id);
+        if (index >= 0) {
+          _leases[index] = updated;
+        } else {
+          _leases.insert(0, updated);
+        }
+        return updated;
+      } catch (rpcErr) {
+        debugPrint('--> [SETTLE LEASE RPC WARNING] Stored procedure error, running fallback: $rpcErr');
+      }
+
+      // 2. Fallback Execution Path: Step-by-Step REST Queries
       try {
         debugPrint('--> [SETTLE STEP 1] Updating master lease in "leases" table: ${updated.id}');
         await _client

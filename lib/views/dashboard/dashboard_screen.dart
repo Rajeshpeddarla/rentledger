@@ -22,6 +22,7 @@ import '../lease/cancel_reservation_screen.dart';
 import '../lease/create_lease_screen.dart';
 import '../lease/future_reservations_screen.dart';
 import '../lease/take_back_settlement_screen.dart';
+import '../../services/notification_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -46,16 +47,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (user == null) return;
 
     try {
-      final res = await client
+      final Map<String, String> map = {};
+
+      // 1. Load parent unit statuses from inventory_units
+      final unitsRes = await client
           .from('inventory_units')
           .select('id, status')
           .eq('store_id', user.id);
 
-      final Map<String, String> map = {};
-      for (final row in (res as List)) {
+      for (final row in (unitsRes as List)) {
         final uId = row['id'] as String?;
         final st = row['status'] as String? ?? 'available';
         if (uId != null) map[uId] = st.toLowerCase();
+      }
+
+      // 2. Load component unit statuses from inventory_component_units
+      final compsRes = await client
+          .from('inventory_component_units')
+          .select('id, inventory_unit_id, status')
+          .eq('store_id', user.id);
+
+      for (final row in (compsRes as List)) {
+        final cId = row['id'] as String?;
+        final uId = row['inventory_unit_id'] as String?;
+        final st = (row['status'] as String? ?? 'available').toLowerCase();
+        if (cId != null) map[cId] = st;
+        if (uId != null && st != 'available' && !map.containsKey(uId)) {
+          map[uId] = st;
+        }
       }
 
       if (mounted) {
@@ -103,7 +122,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 16),
 
               // 3.5. Today's Reservation Pickup Reminder Banner
-              _buildTodayReservationAlertBanner(context, isDark),
+             // _buildTodayReservationAlertBanner(context, isDark),
 
               // 3.8. Upcoming Future Reservations Horizontal Strip
               _buildUpcomingReservationsStrip(context, isDark),
@@ -565,71 +584,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildTodayReservationAlertBanner(BuildContext context, bool isDark) {
-    final leaseState = context.watch<LeaseCubit>().state;
-    final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-
-    final todayPickups = allLeases.where((l) {
-      if (l.status != 'reserved' && l.status != 'upcoming') return false;
-      final st = DateTime(l.startTime.year, l.startTime.month, l.startTime.day);
-      return st.isAtSameMomentAs(today);
-    }).toList();
-
-    if (todayPickups.isEmpty) return const SizedBox.shrink();
-
-    final firstPickup = todayPickups.first;
-    final custName = firstPickup.customer?.name ?? 'Client';
-    final timeStr = DateFormat('hh:mm a').format(firstPickup.startTime);
-    final itemStr = firstPickup.itemNamesSummary;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF3B2E15) : const Color(0xFFFFFBEB),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isDark ? const Color(0xFF6B4E15) : const Color(0xFFFDE68A)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.notifications_active_outlined, color: Colors.amber, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '🔔 Pickup Scheduled Today at $timeStr',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '$custName is picking up $itemStr',
-                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FutureReservationsScreen()),
-              );
-            },
-            child: const Text('View ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildTodayReservationAlertBanner(BuildContext context, bool isDark) {
+  //   final leaseState = context.watch<LeaseCubit>().state;
+  //   final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
+  //
+  //   final now = DateTime.now();
+  //   final today = DateTime(now.year, now.month, now.day);
+  //
+  //   final todayPickups = allLeases.where((l) {
+  //     if (l.status != 'reserved' && l.status != 'upcoming') return false;
+  //     final st = DateTime(l.startTime.year, l.startTime.month, l.startTime.day);
+  //     return st.isAtSameMomentAs(today);
+  //   }).toList();
+  //
+  //   if (todayPickups.isEmpty) return const SizedBox.shrink();
+  //
+  //   final firstPickup = todayPickups.first;
+  //   final custName = firstPickup.customer?.name ?? 'Client';
+  //   final timeStr = DateFormat('hh:mm a').format(firstPickup.startTime);
+  //   final itemStr = firstPickup.itemNamesSummary;
+  //
+  //   return Container(
+  //     margin: const EdgeInsets.only(bottom: 14),
+  //     padding: const EdgeInsets.all(12),
+  //     decoration: BoxDecoration(
+  //       color: isDark ? const Color(0xFF3B2E15) : const Color(0xFFFFFBEB),
+  //       borderRadius: BorderRadius.circular(12),
+  //       border: Border.all(color: isDark ? const Color(0xFF6B4E15) : const Color(0xFFFDE68A)),
+  //     ),
+  //     child: Row(
+  //       children: [
+  //         const Icon(Icons.notifications_active_outlined, color: Colors.amber, size: 22),
+  //         const SizedBox(width: 10),
+  //         Expanded(
+  //           child: Column(
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Text(
+  //                 '🔔 Pickup Scheduled Today at $timeStr',
+  //                 style: TextStyle(
+  //                   fontSize: 12,
+  //                   fontWeight: FontWeight.bold,
+  //                   color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+  //                 ),
+  //               ),
+  //               const SizedBox(height: 2),
+  //               Text(
+  //                 '$custName is picking up $itemStr',
+  //                 style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
+  //                 overflow: TextOverflow.ellipsis,
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //         TextButton(
+  //           onPressed: () {
+  //             Navigator.of(context).push(
+  //               MaterialPageRoute(builder: (_) => const FutureReservationsScreen()),
+  //             );
+  //           },
+  //           child: const Text('View ➔', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
   Widget _buildUpcomingReservationsStrip(BuildContext context, bool isDark) {
     final leaseState = context.watch<LeaseCubit>().state;
@@ -646,7 +665,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final cardWidth = upcomingList.length == 1
         ? (screenWidth - 32)
-        : (screenWidth * 0.83);
+        : (screenWidth * 0.88).clamp(330.0, 440.0);
+
+    // Schedule 30-minute local pickup notifications for all upcoming reservations
+    for (final lease in upcomingList) {
+      NotificationService().schedulePickupNotification(
+        leaseId: lease.id,
+        title: '⏰ Equipment Pick-up Reminder',
+        body: 'Pick-up for ${lease.customer?.name ?? "Client"} (${lease.itemNamesSummary}) is scheduled in 30 minutes!',
+        pickupTime: lease.startTime,
+      );
+    }
+
+    // Check if any upcoming reservation has unit conflicts to adjust container height dynamically
+    bool hasAnyUpcomingConflict = false;
+    for (final l in upcomingList) {
+      for (final line in l.leaseItems) {
+        for (final sub in line.leasedSubItems) {
+          final uId = sub.leaseItemUnitId;
+          final cId = sub.inventoryComponentUnitId;
+          String liveSt = 'available';
+          if (cId != null && _unitStatusMap.containsKey(cId)) {
+            liveSt = _unitStatusMap[cId]!;
+          } else if (uId != null && _unitStatusMap.containsKey(uId)) {
+            liveSt = _unitStatusMap[uId]!;
+          } else {
+            liveSt = sub.conditionStatus.toLowerCase();
+          }
+          if (liveSt == 'maintenance' ||
+              liveSt == 'damaged' ||
+              liveSt == 'in_maintenance' ||
+              liveSt == 'lost' ||
+              liveSt == 'needed_restock') {
+            hasAnyUpcomingConflict = true;
+            break;
+          }
+        }
+        if (hasAnyUpcomingConflict) break;
+      }
+      if (hasAnyUpcomingConflict) break;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -687,11 +745,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 162,
+          height: hasAnyUpcomingConflict ? 220.0 : 165.0,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: upcomingList.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            separatorBuilder: (context, index) => const SizedBox(width: 10),
             itemBuilder: (ctx, idx) {
               final lease = upcomingList[idx];
               final advancePaid = lease.advanceRentPaid > 0 ? lease.advanceRentPaid : lease.depositPaid;
@@ -707,7 +765,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
               for (final line in lease.leaseItems) {
                 for (final sub in line.leasedSubItems) {
                   final uId = sub.leaseItemUnitId;
-                  final liveSt = uId != null ? (_unitStatusMap[uId] ?? sub.conditionStatus.toLowerCase()) : sub.conditionStatus.toLowerCase();
+                  final cId = sub.inventoryComponentUnitId;
+
+                  String liveSt = 'available';
+                  if (cId != null && _unitStatusMap.containsKey(cId)) {
+                    liveSt = _unitStatusMap[cId]!;
+                  } else if (uId != null && _unitStatusMap.containsKey(uId)) {
+                    liveSt = _unitStatusMap[uId]!;
+                  } else {
+                    liveSt = sub.conditionStatus.toLowerCase();
+                  }
 
                   if (liveSt == 'maintenance' ||
                       liveSt == 'damaged' ||
@@ -717,12 +784,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     hasUnitConflict = true;
                     conflictUnitCode = sub.serialNumber ?? 'Assigned Set';
                     conflictCompName = sub.itemName;
-                    if (liveSt == 'maintenance' || liveSt == 'damaged') conflictStatusLabel = 'Damaged';
-                    else if (liveSt == 'in_maintenance') conflictStatusLabel = 'In Maintenance';
-                    else if (liveSt == 'lost') conflictStatusLabel = 'Lost';
-                    else if (liveSt == 'needed_restock') conflictStatusLabel = 'Needed Restock';
-                    else conflictStatusLabel = 'Unavailable';
-                    conflictUnitId = uId;
+                    if (liveSt == 'maintenance' || liveSt == 'damaged') {
+                      conflictStatusLabel = 'Damaged';
+                    } else if (liveSt == 'in_maintenance') {
+                      conflictStatusLabel = 'In Maintenance';
+                    } else if (liveSt == 'lost') {
+                      conflictStatusLabel = 'Lost';
+                    } else if (liveSt == 'needed_restock') {
+                      conflictStatusLabel = 'Needed Restock';
+                    } else {
+                      conflictStatusLabel = 'Unavailable';
+                    }
+                    conflictUnitId = uId ?? cId;
                     break;
                   }
                 }
@@ -834,82 +907,119 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                     const Spacer(),
 
+                    // Action Buttons Layout
                     if (hasUnitConflict) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      Column(
                         children: [
-                          ElevatedButton.icon(
-                            onPressed: () => _openSwapUnitModal(context, lease, conflictUnitId),
-                            icon: const Icon(Icons.swap_horiz, size: 12),
-                            label: const Text('Swap Unit', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _openSwapUnitModal(context, lease, conflictUnitId),
+                                  icon: const Icon(Icons.swap_horiz, size: 14),
+                                  label: const Text('Swap Unit', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    minimumSize: const Size(0, 36),
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _openChangeUnitStatusModal(context, lease, conflictUnitId),
+                                  icon: const Icon(Icons.build_outlined, size: 14),
+                                  label: const Text('Status', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    minimumSize: const Size(0, 36),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          OutlinedButton.icon(
-                            onPressed: () => _openChangeUnitStatusModal(context, lease, conflictUnitId),
-                            icon: const Icon(Icons.build_outlined, size: 12),
-                            label: const Text('Status', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold)),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                          ),
-                          OutlinedButton(
-                            onPressed: () async {
-                              final lCubit = context.read<LeaseCubit>();
-                              final res = await Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
-                              );
-                              if (res == true && mounted) {
-                                lCubit.loadLeases();
-                              }
-                            },
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: AppColors.errorRed),
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            child: const Text('Cancel', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _openRescheduleModal(context, lease),
+                                  icon: const Icon(Icons.edit_calendar, size: 14),
+                                  label: const Text('Reschedule', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    minimumSize: const Size(0, 36),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final lCubit = context.read<LeaseCubit>();
+                                    final res = await Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
+                                    );
+                                    if (res == true && mounted) {
+                                      lCubit.loadLeases();
+                                    }
+                                  },
+                                  icon: const Icon(Icons.cancel_outlined, size: 14, color: AppColors.errorRed),
+                                  label: const Text('Cancel', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: AppColors.errorRed),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    minimumSize: const Size(0, 36),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ] else ...[
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          OutlinedButton.icon(
-                            onPressed: () => _openRescheduleModal(context, lease),
-                            icon: const Icon(Icons.edit_calendar, size: 12),
-                            label: const Text('Reschedule', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold)),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _openRescheduleModal(context, lease),
+                              icon: const Icon(Icons.edit_calendar, size: 14),
+                              label: const Text('Reschedule', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                minimumSize: const Size(0, 36),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
                             ),
                           ),
-                          OutlinedButton(
-                            onPressed: () async {
-                              final lCubit = context.read<LeaseCubit>();
-                              final res = await Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
-                              );
-                              if (res == true && mounted) {
-                                lCubit.loadLeases();
-                              }
-                            },
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: AppColors.errorRed),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final lCubit = context.read<LeaseCubit>();
+                                final res = await Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
+                                );
+                                if (res == true && mounted) {
+                                  lCubit.loadLeases();
+                                }
+                              },
+                              icon: const Icon(Icons.cancel_outlined, size: 14, color: AppColors.errorRed),
+                              label: const Text('Cancel', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: AppColors.errorRed),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                minimumSize: const Size(0, 36),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
                             ),
-                            child: const Text('Cancel Lease', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: AppColors.errorRed)),
                           ),
                         ],
                       ),
@@ -1094,6 +1204,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         await client.from('lease_item_units').update({
                           'checked_out_at': newStart.toIso8601String(),
                         }).eq('lease_id', lease.id);
+
+                        // Schedule local notification 30 minutes before new pick-up time
+                        NotificationService().schedulePickupNotification(
+                          leaseId: lease.id,
+                          title: '⏰ Rescheduled Pick-up Reminder',
+                          body: 'Pick-up for ${lease.customer?.name ?? "Client"} (${lease.itemNamesSummary}) is scheduled in 30 minutes!',
+                          pickupTime: newStart,
+                        );
 
                         if (!mounted) return;
                         await context.read<LeaseCubit>().loadLeases();

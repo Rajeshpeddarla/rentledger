@@ -142,30 +142,8 @@ class _RestockInventoryScreenState extends State<RestockInventoryScreen> {
           })
           .eq('id', comp.id);
 
-      // 2. Re-evaluate parent unit status
-      final allCompsRes = await _client
-          .from('inventory_component_units')
-          .select('status')
-          .eq('inventory_unit_id', comp.inventoryUnitId);
-
-      final List<String> compStatuses = (allCompsRes as List)
-          .map((c) => (c['status'] as String? ?? 'available').toLowerCase())
-          .toList();
-
-      String parentUnitTargetStatus = 'available';
-      if (compStatuses.any((s) => s == 'damaged' || s == 'maintenance' || s == 'in_maintenance')) {
-        parentUnitTargetStatus = 'damaged';
-      } else if (compStatuses.any((s) => s == 'lost' || s == 'needed_restock')) {
-        parentUnitTargetStatus = 'lost';
-      }
-
-      await _client
-          .from('inventory_units')
-          .update({
-            'status': parentUnitTargetStatus,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', comp.inventoryUnitId);
+      // Note: Parent unit status (inventory_units) is kept independent as configured by user,
+      // unless user explicitly updates the parent unit status header directly.
 
       // 3. Log Audit Trail
       final historyRepo = InventoryItemHistoryRepository();
