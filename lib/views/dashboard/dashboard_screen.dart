@@ -861,11 +861,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           OutlinedButton(
                             onPressed: () async {
+                              final lCubit = context.read<LeaseCubit>();
                               final res = await Navigator.of(context).push(
                                 MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
                               );
                               if (res == true && mounted) {
-                                context.read<LeaseCubit>().loadLeases();
+                                lCubit.loadLeases();
                               }
                             },
                             style: OutlinedButton.styleFrom(
@@ -894,11 +895,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           OutlinedButton(
                             onPressed: () async {
+                              final lCubit = context.read<LeaseCubit>();
                               final res = await Navigator.of(context).push(
                                 MaterialPageRoute(builder: (_) => CancelReservationScreen(lease: lease)),
                               );
                               if (res == true && mounted) {
-                                context.read<LeaseCubit>().loadLeases();
+                                lCubit.loadLeases();
                               }
                             },
                             style: OutlinedButton.styleFrom(

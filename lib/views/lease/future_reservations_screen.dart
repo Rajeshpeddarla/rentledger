@@ -210,10 +210,12 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
                                         .eq('lease_item_unit_id', currentUnitId);
                                   }
 
+                                  final lCubit = context.read<LeaseCubit>();
+                                  final iCubit = context.read<InventoryCubit>();
                                   if (!mounted) return;
                                   await _loadUnitStatuses();
-                                  await context.read<LeaseCubit>().loadLeases();
-                                  await context.read<InventoryCubit>().loadInventory();
+                                  await lCubit.loadLeases();
+                                  await iCubit.loadInventory();
 
                                   if (!mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
@@ -308,10 +310,12 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
                       await client.from('inventory_component_units').update({'status': 'available', 'updated_at': DateTime.now().toIso8601String()}).eq('inventory_unit_id', unit.id);
                       await client.from('leased_sub_items').update({'condition_status': 'available', 'updated_at': DateTime.now().toIso8601String()}).eq('lease_id', lease.id).eq('lease_item_unit_id', unit.id);
 
+                      final lCubit = context.read<LeaseCubit>();
+                      final iCubit = context.read<InventoryCubit>();
                       if (!mounted) return;
                       await _loadUnitStatuses();
-                      await context.read<LeaseCubit>().loadLeases();
-                      await context.read<InventoryCubit>().loadInventory();
+                      await lCubit.loadLeases();
+                      await iCubit.loadInventory();
 
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -522,8 +526,9 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
                           'checked_out_at': newStart.toIso8601String(),
                         }).eq('lease_id', lease.id);
 
+                        final lCubit = context.read<LeaseCubit>();
                         if (!mounted) return;
-                        await context.read<LeaseCubit>().loadLeases();
+                        await lCubit.loadLeases();
 
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -815,13 +820,14 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
                                       Expanded(
                                         child: OutlinedButton.icon(
                                           onPressed: () async {
+                                            final lCubit = context.read<LeaseCubit>();
                                             final res = await Navigator.of(context).push(
                                               MaterialPageRoute(
                                                 builder: (_) => CancelReservationScreen(lease: lease),
                                               ),
                                             );
                                             if (res == true && mounted) {
-                                              context.read<LeaseCubit>().loadLeases();
+                                              lCubit.loadLeases();
                                             }
                                           },
                                           icon: const Icon(Icons.cancel_outlined, size: 13, color: AppColors.errorRed),
@@ -853,13 +859,14 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
                                       Expanded(
                                         child: OutlinedButton.icon(
                                           onPressed: () async {
+                                            final lCubit = context.read<LeaseCubit>();
                                             final res = await Navigator.of(context).push(
                                               MaterialPageRoute(
                                                 builder: (_) => CancelReservationScreen(lease: lease),
                                               ),
                                             );
                                             if (res == true && mounted) {
-                                              context.read<LeaseCubit>().loadLeases();
+                                              lCubit.loadLeases();
                                             }
                                           },
                                           icon: const Icon(Icons.cancel_outlined, size: 13, color: AppColors.errorRed),

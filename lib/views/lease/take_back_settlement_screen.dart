@@ -1435,39 +1435,6 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
     _recalculate();
   }
 
-  void _syncParentItemStatusFromSubItems(String itemKey, List<dynamic> subItemsList) {
-    if (subItemsList.isEmpty) return;
-
-    final nonExcludedSubs = subItemsList.where((sub) {
-      return !(sub is LeasedSubItemModel && sub.isExcluded);
-    }).toList();
-
-    if (nonExcludedSubs.isEmpty) return;
-
-    // Get the status of the first non-excluded sub-item
-    final firstSub = nonExcludedSubs.first;
-    final firstSubId = firstSub is LeasedSubItemModel ? firstSub.id : (firstSub as SubItemModel).id;
-    final firstSt = _subItemStatusMap[firstSubId] ?? 'available';
-
-    // Check if ALL non-excluded sub-items have the exact same status
-    bool allSame = true;
-    for (final sub in nonExcludedSubs) {
-      final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
-      final st = _subItemStatusMap[subId] ?? 'available';
-      if (st != firstSt) {
-        allSame = false;
-        break;
-      }
-    }
-
-    // Only auto-update main item status if ALL sub-components share the exact same status!
-    // If sub-component statuses are mixed, preserve manual override on main item condition.
-    if (allSame) {
-      _itemStatusMap[itemKey] = firstSt;
-    }
-    _updateAutoDamageFee();
-  }
-
   void _propagateParentStatusToSubItems(String newStatus, List<dynamic> subItemsList) {
     for (final sub in subItemsList) {
       final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
@@ -1492,42 +1459,10 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
       final qty = lineItem?.quantity ?? widget.lease.quantity;
       final sku = lineItem?.item?.displaySku ?? widget.lease.item?.displaySku ?? '-';
 
-      final currentItemStatus = _itemStatusMap[key] ?? 'available';
-
       // Get sub-items / components for this line item
       final List<dynamic> subItemsList = lineItem != null && lineItem.leasedSubItems.isNotEmpty
           ? lineItem.leasedSubItems
           : (i == 0 ? _subItems : []);
-
-      bool isCardDamagedOrLost = currentItemStatus == 'maintenance' ||
-          currentItemStatus == 'lost' ||
-          currentItemStatus == 'awaiting_inspection';
-
-      for (final sub in subItemsList) {
-        final subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
-        final isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
-        if (!isExcluded) {
-          final subSt = _subItemStatusMap[subId] ?? 'available';
-          if (subSt == 'maintenance' || subSt == 'lost' || subSt == 'awaiting_inspection') {
-            isCardDamagedOrLost = true;
-            break;
-          }
-        }
-      }
-
-      final Color cardBgColor = isCardDamagedOrLost
-          ? (isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2))
-          : (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5));
-
-      final Color cardBorderColor = isCardDamagedOrLost
-          ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA))
-          : (isDark ? AppColors.primary : const Color(0xFFA7F3D0));
-
-      final String statusLabel = isCardDamagedOrLost ? 'DAMAGED / EXCEPTION' : 'RETURNED - GOOD CONDITION';
-      final Color badgeBg = isCardDamagedOrLost
-          ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFFDAD6))
-          : (isDark ? AppColors.darkSurfaceLow : const Color(0xFFD1FAE5));
-      final Color badgeTextColor = isCardDamagedOrLost ? AppColors.errorRed : AppColors.primary;
 
       // Group sub-items into physical sets / units
       final Map<String, List<dynamic>> groupedUnitsMap = {};
@@ -1560,348 +1495,303 @@ class _TakeBackSettlementScreenState extends State<TakeBackSettlementScreen> {
         }
       }
 
-      cards.add(
-        Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: cardBgColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: cardBorderColor, width: 1.5),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Main Item Header Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$qty x $itemName',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+      // Render a top-level card for EACH Physical Set / Unit!
+      int setIndex = 1;
+      for (final mapEntry in groupedUnitsMap.entries) {
+        final unitKeyId = mapEntry.key;
+        final unitSubs = mapEntry.value;
+
+        // Determine Unit-level condition: only show 'available', 'maintenance', or 'lost' if ALL unit sub-items share the exact same status!
+        String unitStatus = _unitStatusMap[unitKeyId] ?? 'available';
+
+        if (unitSubs.isNotEmpty) {
+          final firstUnitSub = unitSubs.first;
+          final firstUnitSubId = firstUnitSub is LeasedSubItemModel ? firstUnitSub.id : (firstUnitSub as SubItemModel).id;
+          final firstUnitSt = _subItemStatusMap[firstUnitSubId] ?? 'available';
+
+          bool allUnitSubsSame = true;
+          for (final s in unitSubs) {
+            final subId = s is LeasedSubItemModel ? s.id : (s as SubItemModel).id;
+            final st = _subItemStatusMap[subId] ?? 'available';
+            if (st != firstUnitSt) {
+              allUnitSubsSame = false;
+              break;
+            }
+          }
+
+          if (allUnitSubsSame) {
+            unitStatus = firstUnitSt;
+            _unitStatusMap[unitKeyId] = firstUnitSt;
+          } else {
+            unitStatus = 'available';
+            _unitStatusMap[unitKeyId] = 'available';
+          }
+        }
+
+        final bool isUnitException = unitStatus == 'maintenance' || unitStatus == 'lost';
+        final bool hasDamagedComponent = unitSubs.any((s) {
+          final subId = s is LeasedSubItemModel ? s.id : (s as SubItemModel).id;
+          return (_subItemStatusMap[subId] ?? 'available') != 'available';
+        });
+
+        final Color cardBgColor = (isUnitException || hasDamagedComponent)
+            ? (isDark ? const Color(0xFF3B1515) : const Color(0xFFFEF2F2))
+            : (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5));
+
+        final Color cardBorderColor = (isUnitException || hasDamagedComponent)
+            ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFECACA))
+            : (isDark ? AppColors.primary : const Color(0xFFA7F3D0));
+
+        final String statusLabel = isUnitException
+            ? (unitStatus == 'lost' ? 'UNIT LOST' : 'UNIT DAMAGED')
+            : (hasDamagedComponent ? 'PARTIAL EXCEPTION' : 'RETURNED - GOOD CONDITION');
+
+        final Color badgeBg = (isUnitException || hasDamagedComponent)
+            ? (isDark ? const Color(0xFF6B1D22) : const Color(0xFFFFDAD6))
+            : (isDark ? AppColors.darkSurfaceLow : const Color(0xFFD1FAE5));
+
+        final Color badgeTextColor = (isUnitException || hasDamagedComponent) ? AppColors.errorRed : AppColors.primary;
+
+        final firstSerialObj = unitSubs.where((s) => (s is LeasedSubItemModel ? s.serialNumber : (s as SubItemModel).serialNumber) != null).firstOrNull;
+        final String? unitSerial = firstSerialObj != null
+            ? (firstSerialObj is LeasedSubItemModel ? firstSerialObj.serialNumber : (firstSerialObj as SubItemModel).serialNumber)
+            : null;
+
+        final unitTitle = '📦 Physical Set #$setIndex ${unitSerial != null && unitSerial.isNotEmpty ? "($unitSerial)" : ""}';
+
+        cards.add(
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: cardBgColor,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: cardBorderColor, width: 1.5),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Set Unit Card Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            unitTitle,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'SKU: $sku • $qty ${qty > 1 ? "physical sets" : "physical set"}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                          const SizedBox(height: 2),
+                          Text(
+                            'Equipment: $itemName • SKU: $sku',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: badgeBg,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      statusLabel,
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: badgeTextColor,
+                        ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              Text(
-                'Overall Item Condition:',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                ),
-              ),
-              const SizedBox(height: 6),
-
-              // Choice Options for Main Item Condition
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  _buildConditionChoiceChip(
-                    label: 'Available (OK)',
-                    value: 'available',
-                    selectedGroupValue: currentItemStatus,
-                    onSelected: () {
-                      setState(() {
-                        _itemStatusMap[key] = 'available';
-                        _propagateParentStatusToSubItems('available', subItemsList);
-                      });
-                    },
-                    isDark: isDark,
-                    activeColor: AppColors.primary,
-                  ),
-                  _buildConditionChoiceChip(
-                    label: 'Damaged',
-                    value: 'maintenance',
-                    selectedGroupValue: currentItemStatus,
-                    onSelected: () {
-                      setState(() {
-                        _itemStatusMap[key] = 'maintenance';
-                        _propagateParentStatusToSubItems('maintenance', subItemsList);
-                      });
-                    },
-                    isDark: isDark,
-                    activeColor: AppColors.errorRed,
-                  ),
-                  _buildConditionChoiceChip(
-                    label: 'Lost',
-                    value: 'lost',
-                    selectedGroupValue: currentItemStatus,
-                    onSelected: () {
-                      setState(() {
-                        _itemStatusMap[key] = 'lost';
-                        _propagateParentStatusToSubItems('lost', subItemsList);
-                      });
-                    },
-                    isDark: isDark,
-                    activeColor: AppColors.errorRed,
-                  ),
-                ],
-              ),
-
-              // Physical Units Grouped Cards
-              if (subItemsList.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                const SizedBox(height: 8),
-
-                ...groupedUnitsMap.entries.toList().asMap().entries.map((mapEntry) {
-                  final setIndex = mapEntry.key + 1;
-                  final unitSubs = mapEntry.value.value;
-
-                  // Determine Unit-level condition: only show 'available', 'maintenance', or 'lost' if ALL unit sub-items share the exact same status!
-                  final unitKeyId = mapEntry.value.key;
-                  String unitStatus = _unitStatusMap[unitKeyId] ?? 'available';
-
-                  if (unitSubs.isNotEmpty) {
-                    final firstUnitSub = unitSubs.first;
-                    final firstUnitSubId = firstUnitSub is LeasedSubItemModel ? firstUnitSub.id : (firstUnitSub as SubItemModel).id;
-                    final firstUnitSt = _subItemStatusMap[firstUnitSubId] ?? 'available';
-
-                    bool allUnitSubsSame = true;
-                    for (final s in unitSubs) {
-                      final subId = s is LeasedSubItemModel ? s.id : (s as SubItemModel).id;
-                      final st = _subItemStatusMap[subId] ?? 'available';
-                      if (st != firstUnitSt) {
-                        allUnitSubsSame = false;
-                        break;
-                      }
-                    }
-
-                    if (allUnitSubsSame) {
-                      unitStatus = firstUnitSt;
-                      _unitStatusMap[unitKeyId] = firstUnitSt;
-                    }
-                  }
-
-                  final firstSerialObj = unitSubs.where((s) => (s is LeasedSubItemModel ? s.serialNumber : (s as SubItemModel).serialNumber) != null).firstOrNull;
-                  final String? unitSerial = firstSerialObj != null
-                      ? (firstSerialObj is LeasedSubItemModel ? firstSerialObj.serialNumber : (firstSerialObj as SubItemModel).serialNumber)
-                      : null;
-
-                  final unitTitle = '📦 Physical Set #$setIndex ${unitSerial != null && unitSerial.isNotEmpty ? "($unitSerial)" : ""}';
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkCard : Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Unit Header with Per-Unit Status Chips
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                unitTitle,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildConditionChoiceChip(
-                                  label: 'OK',
-                                  value: 'available',
-                                  selectedGroupValue: unitStatus,
-                                  onSelected: () {
-                                    setState(() {
-                                      _unitStatusMap[unitKeyId] = 'available';
-                                      _propagateParentStatusToSubItems('available', unitSubs);
-                                      _syncParentItemStatusFromSubItems(key, subItemsList);
-                                    });
-                                  },
-                                  isDark: isDark,
-                                  activeColor: AppColors.primary,
-                                  isCompact: true,
-                                ),
-                                const SizedBox(width: 4),
-                                _buildConditionChoiceChip(
-                                  label: 'Damaged',
-                                  value: 'maintenance',
-                                  selectedGroupValue: unitStatus,
-                                  onSelected: () {
-                                    setState(() {
-                                      _unitStatusMap[unitKeyId] = 'maintenance';
-                                      _propagateParentStatusToSubItems('maintenance', unitSubs);
-                                      _syncParentItemStatusFromSubItems(key, subItemsList);
-                                    });
-                                  },
-                                  isDark: isDark,
-                                  activeColor: AppColors.errorRed,
-                                  isCompact: true,
-                                ),
-                                const SizedBox(width: 4),
-                                _buildConditionChoiceChip(
-                                  label: 'Lost',
-                                  value: 'lost',
-                                  selectedGroupValue: unitStatus,
-                                  onSelected: () {
-                                    setState(() {
-                                      _unitStatusMap[unitKeyId] = 'lost';
-                                      _propagateParentStatusToSubItems('lost', unitSubs);
-                                      _syncParentItemStatusFromSubItems(key, subItemsList);
-                                    });
-                                  },
-                                  isDark: isDark,
-                                  activeColor: AppColors.errorRed,
-                                  isCompact: true,
-                                ),
-                              ],
-                            ),
-                          ],
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: badgeBg,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: badgeTextColor,
                         ),
-                        const SizedBox(height: 10),
-
-                        // Sub-Items under this Unit
-                        ...unitSubs.map((sub) {
-                          final String subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
-                          final String subName = sub is LeasedSubItemModel ? sub.itemName : (sub as SubItemModel).name;
-                          final String? subSerial = sub is LeasedSubItemModel ? sub.serialNumber : (sub as SubItemModel).serialNumber;
-                          final bool isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
-
-                          if (isExcluded) {
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 6),
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: isDark ? AppColors.darkCard : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '• $subName [EXCLUDED FROM RENTAL - NOT EXPECTED]',
-                                style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold),
-                              ),
-                            );
-                          }
-
-                          final String currentSubSt = _subItemStatusMap[subId] ?? 'available';
-
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '• $subName${subSerial != null && subSerial.isNotEmpty ? " (SN: $subSerial)" : ""}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _buildConditionChoiceChip(
-                                      label: 'OK',
-                                      value: 'available',
-                                      selectedGroupValue: currentSubSt,
-                                      onSelected: () {
-                                        setState(() {
-                                          _subItemStatusMap[subId] = 'available';
-                                          _syncParentItemStatusFromSubItems(key, subItemsList);
-                                        });
-                                      },
-                                      isDark: isDark,
-                                      activeColor: AppColors.primary,
-                                      isCompact: true,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    _buildConditionChoiceChip(
-                                      label: 'Damaged',
-                                      value: 'maintenance',
-                                      selectedGroupValue: currentSubSt,
-                                      onSelected: () {
-                                        setState(() {
-                                          _subItemStatusMap[subId] = 'maintenance';
-                                          _syncParentItemStatusFromSubItems(key, subItemsList);
-                                        });
-                                      },
-                                      isDark: isDark,
-                                      activeColor: AppColors.errorRed,
-                                      isCompact: true,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    _buildConditionChoiceChip(
-                                      label: 'Lost',
-                                      value: 'lost',
-                                      selectedGroupValue: currentSubSt,
-                                      onSelected: () {
-                                        setState(() {
-                                          _subItemStatusMap[subId] = 'lost';
-                                          _syncParentItemStatusFromSubItems(key, subItemsList);
-                                        });
-                                      },
-                                      isDark: isDark,
-                                      activeColor: AppColors.errorRed,
-                                      isCompact: true,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ],
+                      ),
                     ),
-                  );
-                }),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Per-Unit Condition Choice Chips Header
+                Text(
+                  'Set Unit Condition:',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+
+                // Choice Chips for this Physical Unit Set
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _buildConditionChoiceChip(
+                      label: 'Available (OK)',
+                      value: 'available',
+                      selectedGroupValue: unitStatus,
+                      onSelected: () {
+                        setState(() {
+                          _unitStatusMap[unitKeyId] = 'available';
+                          _propagateParentStatusToSubItems('available', unitSubs);
+                        });
+                      },
+                      isDark: isDark,
+                      activeColor: AppColors.primary,
+                    ),
+                    _buildConditionChoiceChip(
+                      label: 'Damaged',
+                      value: 'maintenance',
+                      selectedGroupValue: unitStatus,
+                      onSelected: () {
+                        setState(() {
+                          _unitStatusMap[unitKeyId] = 'maintenance';
+                          _propagateParentStatusToSubItems('maintenance', unitSubs);
+                        });
+                      },
+                      isDark: isDark,
+                      activeColor: AppColors.errorRed,
+                    ),
+                    _buildConditionChoiceChip(
+                      label: 'Lost',
+                      value: 'lost',
+                      selectedGroupValue: unitStatus,
+                      onSelected: () {
+                        setState(() {
+                          _unitStatusMap[unitKeyId] = 'lost';
+                          _propagateParentStatusToSubItems('lost', unitSubs);
+                        });
+                      },
+                      isDark: isDark,
+                      activeColor: AppColors.errorRed,
+                    ),
+                  ],
+                ),
+
+                // Sub-Components list under this Physical Unit Set
+                if (unitSubs.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  const SizedBox(height: 8),
+
+                  Text(
+                    'Unit Components Condition:',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  ...unitSubs.map((sub) {
+                    final String subId = sub is LeasedSubItemModel ? sub.id : (sub as SubItemModel).id;
+                    final String subName = sub is LeasedSubItemModel ? sub.itemName : (sub as SubItemModel).name;
+                    final String? subSerial = sub is LeasedSubItemModel ? sub.serialNumber : (sub as SubItemModel).serialNumber;
+                    final bool isExcluded = sub is LeasedSubItemModel ? sub.isExcluded : false;
+
+                    if (isExcluded) {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkCard : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '• $subName [EXCLUDED FROM RENTAL - NOT EXPECTED]',
+                          style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold),
+                        ),
+                      );
+                    }
+
+                    final String currentSubSt = _subItemStatusMap[subId] ?? 'available';
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '• $subName${subSerial != null && subSerial.isNotEmpty ? " (SN: $subSerial)" : ""}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildConditionChoiceChip(
+                                label: 'OK',
+                                value: 'available',
+                                selectedGroupValue: currentSubSt,
+                                onSelected: () {
+                                  setState(() {
+                                    _subItemStatusMap[subId] = 'available';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                isDark: isDark,
+                                activeColor: AppColors.primary,
+                                isCompact: true,
+                              ),
+                              const SizedBox(width: 4),
+                              _buildConditionChoiceChip(
+                                label: 'Damaged',
+                                value: 'maintenance',
+                                selectedGroupValue: currentSubSt,
+                                onSelected: () {
+                                  setState(() {
+                                    _subItemStatusMap[subId] = 'maintenance';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                isDark: isDark,
+                                activeColor: AppColors.errorRed,
+                                isCompact: true,
+                              ),
+                              const SizedBox(width: 4),
+                              _buildConditionChoiceChip(
+                                label: 'Lost',
+                                value: 'lost',
+                                selectedGroupValue: currentSubSt,
+                                onSelected: () {
+                                  setState(() {
+                                    _subItemStatusMap[subId] = 'lost';
+                                    _updateAutoDamageFee();
+                                  });
+                                },
+                                isDark: isDark,
+                                activeColor: AppColors.errorRed,
+                                isCompact: true,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-      );
+        );
+        setIndex++;
+      }
     }
 
     return cards;
