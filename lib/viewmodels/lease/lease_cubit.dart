@@ -89,4 +89,21 @@ class LeaseCubit extends Cubit<LeaseState> {
       throw Exception(e.toString());
     }
   }
+
+  /// Confirm reservation and start renting
+  Future<LeaseModel> confirmReservation(
+    LeaseModel lease, {
+    DateTime? actualPickupTime,
+  }) async {
+    try {
+      final confirmed = await _leaseRepository.confirmReservationAndStartRent(
+        lease,
+        actualPickupTime: actualPickupTime,
+      );
+      await loadLeases();
+      return confirmed;
+    } catch (e) {
+      throw Exception(e.toString());
+    }
+  }
 }

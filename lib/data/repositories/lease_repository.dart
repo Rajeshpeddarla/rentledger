@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../services/notification_service.dart';
 import '../models/lease_item_model.dart';
 import '../models/lease_model.dart';
 import '../models/leased_sub_item_model.dart';
@@ -582,6 +583,138 @@ class LeaseRepository {
       _leases.insert(0, updated);
     }
     return updated;
+  }
+
+  /// Confirm a reserved lease order, transition its status to 'active' (rented),
+  /// record the actual pickup start time, and update assigned physical units/components to 'rented'.
+  Future<LeaseModel> confirmReservationAndStartRent(
+    LeaseModel lease, {
+    DateTime? actualPickupTime,
+  }) async {
+    final pickupTime = actualPickupTime ?? DateTime.now();
+    final updatedLease = lease.copyWith(
+      status: 'active',
+      startTime: pickupTime,
+      updatedAt: DateTime.now(),
+    );
+
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        // 1. Update lease status & start_time in leases table
+        await _client.from('leases').update({
+          'status': 'active',
+          'start_time': pickupTime.toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', lease.id);
+
+        // 2. Update lease_item_units checked_out_at time and inspection status
+        try {
+          await _client.from('lease_item_units').update({
+            'checked_out_at': pickupTime.toIso8601String(),
+            'inspection_status': 'rented',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('lease_id', lease.id);
+        } catch (e) {
+          debugPrint('confirmReservation update lease_item_units warning: $e');
+        }
+
+        // 3. Update leased_sub_items condition_status to 'rented'
+        try {
+          await _client.from('leased_sub_items').update({
+            'condition_status': 'rented',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('lease_id', lease.id);
+        } catch (e) {
+          debugPrint('confirmReservation update leased_sub_items warning: $e');
+        }
+
+        // 4. Update assigned physical units in inventory_units table to 'rented'
+        try {
+          final unitsRes = await _client
+              .from('lease_item_units')
+              .select('inventory_unit_id')
+              .eq('lease_id', lease.id);
+
+          final Set<String> unitIds = {};
+          for (final row in (unitsRes as List)) {
+            final uId = row['inventory_unit_id'] as String?;
+            if (uId != null && uId.isNotEmpty) unitIds.add(uId);
+          }
+          for (final line in lease.leaseItems) {
+            for (final sub in line.leasedSubItems) {
+              if (sub.leaseItemUnitId != null && sub.leaseItemUnitId!.isNotEmpty) {
+                unitIds.add(sub.leaseItemUnitId!);
+              }
+            }
+          }
+
+          for (final uId in unitIds) {
+            await _client
+                .from('inventory_units')
+                .update({'status': 'rented', 'updated_at': DateTime.now().toIso8601String()})
+                .eq('id', uId);
+          }
+          debugPrint('--> [CONFIRM RESERVATION] Set status to rented for unit IDs: $unitIds');
+        } catch (uErr) {
+          debugPrint('confirmReservation update inventory_units warning: $uErr');
+        }
+
+        // 5. Update component units in inventory_component_units table to 'rented'
+        try {
+          final Set<String> compIds = {};
+          final subCompsRes = await _client
+              .from('leased_sub_items')
+              .select('inventory_component_unit_id, is_excluded')
+              .eq('lease_id', lease.id);
+
+          for (final row in (subCompsRes as List)) {
+            final isEx = row['is_excluded'] as bool? ?? false;
+            final compId = row['inventory_component_unit_id'] as String?;
+            if (!isEx && compId != null && compId.isNotEmpty) {
+              compIds.add(compId);
+            }
+          }
+
+          for (final line in lease.leaseItems) {
+            for (final sub in line.leasedSubItems) {
+              if (!sub.isExcluded &&
+                  sub.inventoryComponentUnitId != null &&
+                  sub.inventoryComponentUnitId!.isNotEmpty) {
+                compIds.add(sub.inventoryComponentUnitId!);
+              }
+            }
+          }
+
+          for (final compId in compIds) {
+            await _client
+                .from('inventory_component_units')
+                .update({'status': 'rented', 'updated_at': DateTime.now().toIso8601String()})
+                .eq('id', compId);
+          }
+          debugPrint('--> [CONFIRM RESERVATION] Set status to rented for component IDs: $compIds');
+        } catch (cErr) {
+          debugPrint('confirmReservation update inventory_component_units warning: $cErr');
+        }
+
+        // 6. Cancel pending pickup notifications for this lease
+        try {
+          await NotificationService().cancelNotification(lease.id);
+        } catch (_) {}
+
+      } catch (e) {
+        debugPrint('LeaseRepository.confirmReservationAndStartRent error: $e');
+        throw Exception('Failed to confirm reservation: $e');
+      }
+    }
+
+    final index = _leases.indexWhere((l) => l.id == lease.id);
+    if (index >= 0) {
+      _leases[index] = updatedLease;
+    } else {
+      _leases.insert(0, updatedLease);
+    }
+    return updatedLease;
   }
 
   /// Cancel a reserved/active lease order, record refund notes, and release physical units

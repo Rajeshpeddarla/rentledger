@@ -7,6 +7,7 @@ import '../../core/config/app_theme.dart';
 import '../../data/models/inventory_unit_model.dart';
 import '../../data/models/lease_model.dart';
 import '../../data/repositories/inventory_unit_repository.dart';
+import '../../services/notification_service.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
@@ -68,33 +69,150 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
     }
   }
 
-  Future<void> _dispatchPickup(LeaseModel lease) async {
-    try {
-      final updated = lease.copyWith(
-        status: 'active',
-        startTime: DateTime.now(),
-      );
-      await context.read<LeaseCubit>().returnAndSettle(updated);
-      if (!mounted) return;
-      await context.read<InventoryCubit>().loadInventory();
+  Future<void> _openConfirmPickupModal(BuildContext context, LeaseModel lease) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final now = DateTime.now();
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Reservation for ${lease.customer?.name ?? "Customer"} dispatched successfully!'),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error dispatching pickup: $e'),
-          backgroundColor: AppColors.errorRed,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    final diffMinutes = now.difference(lease.startTime).inMinutes;
+    final bool isEarly = diffMinutes < -15;
+    final bool isLate = diffMinutes > 15;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(
+                isEarly ? Icons.timer_outlined : (isLate ? Icons.history_toggle_off : Icons.check_circle_outline),
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isEarly
+                      ? 'Early Pick-up Confirmation'
+                      : (isLate ? 'Late Pick-up Confirmation' : 'Confirm Pick-up & Rent'),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Client: ${lease.customer?.name ?? "Customer"}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Equipment: ${lease.itemNamesSummary}',
+                style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurfaceLow : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: isDark ? AppColors.darkBorder : const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Scheduled Pick-up: ${DateFormat("dd MMM yyyy, hh:mm a").format(lease.startTime)}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: (isEarly || isLate) ? Colors.amber.shade900 : AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Actual Pick-up Time (Now): ${DateFormat("dd MMM yyyy, hh:mm a").format(now)}',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (isEarly) ...[
+                Text(
+                  'Customer is picking up equipment ${-diffMinutes} minutes before scheduled time. Rental start time will be updated to current time (${DateFormat("hh:mm a").format(now)}).',
+                  style: const TextStyle(fontSize: 11.5),
+                ),
+              ] else if (isLate) ...[
+                Text(
+                  'Customer is picking up equipment $diffMinutes minutes after scheduled time. Rental start time will be updated to current time (${DateFormat("hh:mm a").format(now)}).',
+                  style: const TextStyle(fontSize: 11.5),
+                ),
+              ] else ...[
+                const Text(
+                  'Confirm that customer has picked up the equipment? Rental start time will be recorded as current time, order status will change to RENTED, and assigned physical units will be marked RENTED.',
+                  style: TextStyle(fontSize: 11.5),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.secondary)),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.check_circle_outline, size: 16),
+              label: const Text('Confirm & Rent', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true && mounted) {
+      try {
+        final lCubit = context.read<LeaseCubit>();
+        final iCubit = context.read<InventoryCubit>();
+
+        await lCubit.confirmReservation(
+          lease,
+          actualPickupTime: now,
+        );
+
+        if (!mounted) return;
+        await _loadUnitStatuses();
+        await iCubit.loadInventory();
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Reservation for ${lease.customer?.name ?? "Customer"} confirmed and marked as RENTED!',
+            ),
+            backgroundColor: AppColors.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error confirming pickup: $e'),
+            backgroundColor: AppColors.errorRed,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -605,6 +723,15 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
           final allLeases = state is LeaseLoaded ? state.allLeases : <LeaseModel>[];
           final displayList = _getFilteredReservations(allLeases);
 
+          for (final lease in displayList) {
+            NotificationService().schedulePickupNotification(
+              leaseId: lease.id,
+              title: '⏰ Equipment Pick-up Reminder',
+              body: 'Pick-up for ${lease.customer?.name ?? "Client"} (${lease.itemNamesSummary}) is scheduled for ${DateFormat("hh:mm a").format(lease.startTime)}!',
+              pickupTime: lease.startTime,
+            );
+          }
+
           return Column(
             children: [
               // Filter Chips Row
@@ -880,9 +1007,9 @@ class _FutureReservationsScreenState extends State<FutureReservationsScreen> {
                                       const SizedBox(width: 6),
                                       Expanded(
                                         child: ElevatedButton.icon(
-                                          onPressed: () => _dispatchPickup(lease),
+                                          onPressed: () => _openConfirmPickupModal(context, lease),
                                           icon: const Icon(Icons.check_circle_outline, size: 13),
-                                          label: const Text('Dispatch', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
+                                          label: const Text('Confirm Pickup', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
                                           style: ElevatedButton.styleFrom(
                                             backgroundColor: AppColors.primary,
                                             padding: const EdgeInsets.symmetric(vertical: 8),

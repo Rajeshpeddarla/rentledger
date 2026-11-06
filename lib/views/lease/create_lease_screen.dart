@@ -18,6 +18,7 @@ import '../../data/models/lease_model.dart';
 import '../../data/models/leased_sub_item_model.dart';
 import '../../data/models/store_model.dart';
 import '../../data/repositories/inventory_unit_repository.dart';
+import '../../services/notification_service.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/customer/customer_cubit.dart';
@@ -780,6 +781,15 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
             isPro: widget.isPro,
             totalItemQuantity: primaryItem.totalQuantity,
           );
+
+      if (createdLease.status == 'reserved' || createdLease.isFutureReservation) {
+        NotificationService().schedulePickupNotification(
+          leaseId: createdLease.id,
+          title: '⏰ Equipment Pick-up Reminder',
+          body: 'Pick-up for ${createdLease.customer?.name ?? "Client"} (${createdLease.itemNamesSummary}) is scheduled for ${DateFormat("hh:mm a").format(createdLease.startTime)}!',
+          pickupTime: createdLease.startTime,
+        );
+      }
 
       if (mounted) {
         context.read<InventoryCubit>().loadInventory();

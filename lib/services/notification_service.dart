@@ -60,22 +60,12 @@ class NotificationService {
     try {
       await initialize();
 
-      final notificationTime = pickupTime.subtract(const Duration(minutes: 30));
       final now = DateTime.now();
-
-      // Only schedule if notification time is in the future
-      if (notificationTime.isBefore(now)) {
-        debugPrint('Pickup notification time ($notificationTime) is in the past; skipping schedule.');
-        return;
-      }
-
-      final tz.TZDateTime scheduledTZDate = tz.TZDateTime.from(notificationTime, tz.local);
-      final int notificationId = leaseId.hashCode.abs() % 2147483647;
 
       const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
         'rentledger_pickup_channel',
         'Equipment Pick-up Reminders',
-        channelDescription: 'Notifications sent 30 minutes before equipment pickup time',
+        channelDescription: 'Notifications sent before and at equipment pickup time',
         importance: Importance.max,
         priority: Priority.high,
         icon: '@mipmap/ic_launcher',
@@ -86,16 +76,43 @@ class NotificationService {
         iOS: DarwinNotificationDetails(),
       );
 
-      await _notificationsPlugin.zonedSchedule(
-        id: notificationId,
-        title: title,
-        body: body,
-        scheduledDate: scheduledTZDate,
-        notificationDetails: notificationDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
+      // 1. Schedule 30-minute advance notification
+      final notificationTime30m = pickupTime.subtract(const Duration(minutes: 30));
+      final int notificationId1 = leaseId.hashCode.abs() % 2147483647;
 
-      debugPrint('--> Scheduled 30-min pickup notification for lease $leaseId at $scheduledTZDate');
+      if (notificationTime30m.isAfter(now)) {
+        final tz.TZDateTime scheduledTZDate30m = tz.TZDateTime.from(notificationTime30m, tz.local);
+        await _notificationsPlugin.zonedSchedule(
+          id: notificationId1,
+          title: title,
+          body: body,
+          scheduledDate: scheduledTZDate30m,
+          notificationDetails: notificationDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+        debugPrint('--> Scheduled 30-min pickup notification for lease $leaseId at $scheduledTZDate30m');
+      } else {
+        debugPrint('30-min notification time ($notificationTime30m) is past; skipped.');
+      }
+
+      // 2. Schedule exact pickup time notification
+      final int notificationId2 = (leaseId.hashCode.abs() + 1) % 2147483647;
+      if (pickupTime.isAfter(now)) {
+        final tz.TZDateTime scheduledTZDatePickup = tz.TZDateTime.from(pickupTime, tz.local);
+        await _notificationsPlugin.zonedSchedule(
+          id: notificationId2,
+          title: '🚨 Equipment Pick-up Time Now!',
+          body: title.replaceAll('⏰ Equipment Pick-up Reminder', '').trim().isNotEmpty
+              ? title
+              : body,
+          scheduledDate: scheduledTZDatePickup,
+          notificationDetails: notificationDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+        debugPrint('--> Scheduled exact pickup time notification for lease $leaseId at $scheduledTZDatePickup');
+      } else {
+        debugPrint('Exact pickup time ($pickupTime) is past; skipped.');
+      }
     } catch (e) {
       debugPrint('NotificationService.schedulePickupNotification error: $e');
     }
@@ -103,9 +120,11 @@ class NotificationService {
 
   Future<void> cancelNotification(String leaseId) async {
     try {
-      final int notificationId = leaseId.hashCode.abs() % 2147483647;
-      await _notificationsPlugin.cancel(id: notificationId);
-      debugPrint('--> Cancelled pickup notification for lease $leaseId');
+      final int notificationId1 = leaseId.hashCode.abs() % 2147483647;
+      final int notificationId2 = (leaseId.hashCode.abs() + 1) % 2147483647;
+      await _notificationsPlugin.cancel(id: notificationId1);
+      await _notificationsPlugin.cancel(id: notificationId2);
+      debugPrint('--> Cancelled pickup notifications for lease $leaseId');
     } catch (e) {
       debugPrint('NotificationService.cancelNotification error: $e');
     }
