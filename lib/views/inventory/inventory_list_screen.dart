@@ -4,12 +4,14 @@ import '../../core/config/app_theme.dart';
 import '../../core/utils/rate_calculator.dart';
 import '../../core/widgets/app_image_view.dart';
 import '../../data/models/inventory_item_model.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/category/category_cubit.dart';
 import '../../viewmodels/category/category_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
 import '../../viewmodels/inventory/inventory_state.dart';
+import '../profile/subscription_paywall_screen.dart';
 import '../widgets/shimmer_loading.dart';
 import 'add_edit_item_screen.dart';
 import 'item_detail_history_screen.dart';
@@ -26,11 +28,22 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _calcHourlyController = TextEditingController(text: '150');
   double _calcHourly = 150;
+  PackageLimitsModel _limits = const PackageLimitsModel();
 
   @override
   void initState() {
     super.initState();
     context.read<CategoryCubit>().loadCategories();
+    _loadLimits();
+  }
+
+  Future<void> _loadLimits() async {
+    final limits = await AdminRepository().getPackageLimits();
+    if (mounted) {
+      setState(() {
+        _limits = limits;
+      });
+    }
   }
 
   @override
@@ -38,6 +51,96 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     _searchController.dispose();
     _calcHourlyController.dispose();
     super.dispose();
+  }
+
+  Widget _buildItemLimitBar(int currentCount, int maxLimit, bool isDark) {
+    final double pct = (currentCount / maxLimit).clamp(0.0, 1.0);
+    final bool isNearLimit = currentCount >= maxLimit;
+
+    final Color cardBg = isNearLimit
+        ? (isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6))
+        : (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5));
+
+    final Color borderColor = isNearLimit
+        ? AppColors.errorRed
+        : (isDark ? AppColors.primaryLight : const Color(0xFFA7F3D0));
+
+    final Color textIconColor = isNearLimit
+        ? AppColors.errorRed
+        : (isDark ? AppColors.primaryLight : const Color(0xFF047857));
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(
+                      isNearLimit ? Icons.warning_amber_rounded : Icons.inventory_2_outlined,
+                      size: 16,
+                      color: textIconColor,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Free Active Items Quota: $currentCount / $maxLimit',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: textIconColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SubscriptionPaywallScreen()),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isNearLimit ? AppColors.errorRed : AppColors.primary,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'Upgrade Pro',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 5,
+              backgroundColor: isDark ? Colors.black38 : const Color(0xFFD1FAE5),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isNearLimit ? AppColors.errorRed : AppColors.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -115,6 +218,13 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (!isPro)
+                    _buildItemLimitBar(
+                      inventoryLoaded.allItems.length,
+                      _limits.freeItemsLimit,
+                      isDark,
+                    ),
+
                   // 1. Search Bar
                   Container(
                     decoration: BoxDecoration(

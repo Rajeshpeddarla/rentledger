@@ -22,6 +22,7 @@ import '../lease/cancel_reservation_screen.dart';
 import '../lease/create_lease_screen.dart';
 import '../lease/future_reservations_screen.dart';
 import '../lease/take_back_settlement_screen.dart';
+import '../profile/edit_store_profile_screen.dart';
 import '../profile/secure_account_sheet.dart';
 import '../../services/notification_service.dart';
 
@@ -379,15 +380,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(width: 8),
                   ElevatedButton(
                     onPressed: () {
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                        ),
-                        builder: (_) => const SecureAccountSheet(),
-                      );
+                      if (!isSecured) {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                          ),
+                          builder: (_) => const SecureAccountSheet(),
+                        );
+                      } else {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => EditStoreProfileScreen(store: store),
+                          ),
+                        );
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isDark ? AppColors.primary : const Color(0xFFD97706),

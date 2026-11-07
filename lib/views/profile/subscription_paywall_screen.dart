@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/config/app_theme.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/subscription/subscription_cubit.dart';
@@ -14,14 +15,31 @@ class SubscriptionPaywallScreen extends StatefulWidget {
 }
 
 class _SubscriptionPaywallScreenState extends State<SubscriptionPaywallScreen> {
-  bool _isAnnual = true;
+  final AdminRepository _adminRepo = AdminRepository();
+  PackageLimitsModel _limits = const PackageLimitsModel();
+  bool _isLoadingLimits = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPackageLimits();
+  }
+
+  Future<void> _loadPackageLimits() async {
+    final limits = await _adminRepo.getPackageLimits();
+    if (mounted) {
+      setState(() {
+        _limits = limits;
+        _isLoadingLimits = false;
+      });
+    }
+  }
 
   void _handleUpgrade() {
     final storeState = context.read<StoreCubit>().state;
     final isAnonymous = storeState is StoreLoaded && !storeState.store.isAccountSecured;
 
     if (isAnonymous) {
-      // Enforce Section 5.2 Rule: "Secure Account FIRST, Then Upgrade"
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -38,17 +56,16 @@ class _SubscriptionPaywallScreenState extends State<SubscriptionPaywallScreen> {
   void _proceedWithPurchase() async {
     final subscriptionCubit = context.read<SubscriptionCubit>();
     final storeCubit = context.read<StoreCubit>();
-    final tier = _isAnnual ? 'pro_annual' : 'pro_monthly';
-    await subscriptionCubit.upgradeToTier(tier);
+    await subscriptionCubit.upgradeToTier('pro_monthly');
     await storeCubit.initSession();
 
     if (!mounted) return;
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      const SnackBar(
         content: Text(
-          'Welcome to RentLedger Pro (${_isAnnual ? "Annual" : "Monthly"})!',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          'Welcome to RentLedger Pro Monthly!',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
         backgroundColor: AppColors.primary,
       ),
@@ -104,71 +121,40 @@ class _SubscriptionPaywallScreenState extends State<SubscriptionPaywallScreen> {
 
             const SizedBox(height: 20),
 
-            // Billing Cycle Toggle (Monthly vs Annual)
+            // Pro Plan Highlight Card
             Container(
-              padding: const EdgeInsets.all(4),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : AppColors.lightSurfaceLow,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                gradient: LinearGradient(
+                  colors: isDark
+                      ? [const Color(0xFF142E24), const Color(0xFF0F172A)]
+                      : [const Color(0xFFECFDF5), const Color(0xFFF0FDF4)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.primaryLight, width: 1.5),
               ),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _isAnnual = false),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: !_isAnnual ? AppColors.primary : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'Monthly (₹249)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: !_isAnnual ? Colors.white : (isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
-                          ),
-                        ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Pro Monthly Plan',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primary),
                       ),
-                    ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Full Access • Cancel Anytime',
+                        style: TextStyle(fontSize: 11, color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _isAnnual = true),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: _isAnnual ? AppColors.primary : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Annual (₹1,999)',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: _isAnnual ? Colors.white : (isDark ? AppColors.darkOnSurface : AppColors.lightOnSurface),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: AppColors.tertiaryFixed,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text('SAVE 33%', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: AppColors.tertiary)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  Text(
+                    '${_limits.proMonthlyPrice}/mo',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.primary),
                   ),
                 ],
               ),
@@ -176,7 +162,7 @@ class _SubscriptionPaywallScreenState extends State<SubscriptionPaywallScreen> {
 
             const SizedBox(height: 20),
 
-            // Feature Comparison Matrix
+            // Dynamic Feature Comparison Matrix
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -186,15 +172,13 @@ class _SubscriptionPaywallScreenState extends State<SubscriptionPaywallScreen> {
               ),
               child: Column(
                 children: [
-                  _buildMatrixRow('Active Items Fleet', '10 Items', 'UNLIMITED', true, isDark),
+                  _buildMatrixRow('Active Items Fleet', '${_limits.freeItemsLimit} Items', 'UNLIMITED', true, isDark),
                   const Divider(),
-                  _buildMatrixRow('Monthly Leases Quota', '500 Leases/mo', 'UNLIMITED', true, isDark),
+                  _buildMatrixRow('Monthly Leases Quota', '${_limits.freeMonthlyLeasesLimit} Leases/mo', 'UNLIMITED', true, isDark),
+                  const Divider(),
+                  _buildMatrixRow('Condition Photos per Lease', 'Max ${_limits.freePhotosLimit} Photos', 'Max ${_limits.proPhotosLimit} Photos', true, isDark),
                   const Divider(),
                   _buildMatrixRow('Receipt PDF Branding', 'RentLedger Tag', 'Custom Store Logo', true, isDark),
-                  const Divider(),
-                  _buildMatrixRow('Condition Photos in PDF', 'Excluded', 'Embedded WebP', true, isDark),
-                  const Divider(),
-                  _buildMatrixRow('UPI Checkout QR', 'Static Image', 'Dynamic Auto-Amount', true, isDark),
                   const Divider(),
                   _buildMatrixRow('Financial Reports Export', 'Screen Only', 'PDF & Excel (CSV)', true, isDark),
                   const Divider(),
@@ -223,14 +207,14 @@ class _SubscriptionPaywallScreenState extends State<SubscriptionPaywallScreen> {
               )
             else
               ElevatedButton(
-                onPressed: _handleUpgrade,
+                onPressed: _isLoadingLimits ? null : _handleUpgrade,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   minimumSize: const Size.fromHeight(50),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: Text(
-                  _isAnnual ? 'Upgrade to Pro Annual (₹1,999/yr)' : 'Upgrade to Pro Monthly (₹249/mo)',
+                  'Upgrade to Pro Monthly (${_limits.proMonthlyPrice}/mo)',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
               ),

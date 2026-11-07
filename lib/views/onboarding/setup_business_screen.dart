@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/config/app_theme.dart';
 import '../../core/utils/country_currency.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
@@ -278,6 +279,141 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
             country: _selectedCountry,
           );
     }
+  }
+
+  void _showForgotPasswordDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final emailResetController = TextEditingController(text: _emailController.text.trim());
+    bool isResetting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.lock_reset_outlined, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Forgot Password?',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Enter your registered email address and we will send you a password reset link.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: emailResetController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email Address',
+                      prefixIcon: Icon(Icons.email_outlined),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.secondary)),
+                ),
+                ElevatedButton(
+                  onPressed: isResetting
+                      ? null
+                      : () async {
+                          final email = emailResetController.text.trim();
+                          if (email.isEmpty || !email.contains('@')) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please enter a valid email address'),
+                                backgroundColor: AppColors.errorRed,
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => isResetting = true);
+
+                          try {
+                            await Supabase.instance.client.auth.resetPasswordForEmail(
+                              email,
+                              redirectTo: 'io.supabase.rentledger://reset-password',
+                            );
+
+                            if (!mounted) return;
+                            Navigator.pop(dialogCtx);
+
+                            showDialog(
+                              context: context,
+                              builder: (alertCtx) => AlertDialog(
+                                backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                title: const Row(
+                                  children: [
+                                    Icon(Icons.mark_email_read_outlined, color: AppColors.primary),
+                                    SizedBox(width: 8),
+                                    Text('Reset Email Sent', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                content: Text(
+                                  'A password reset link has been sent to $email. Please check your inbox and tap the link to reset your password.',
+                                  style: const TextStyle(fontSize: 12.5),
+                                ),
+                                actions: [
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                                    onPressed: () => Navigator.pop(alertCtx),
+                                    child: const Text('OK', style: TextStyle(color: Colors.white)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error sending reset email: $e'),
+                                backgroundColor: AppColors.errorRed,
+                              ),
+                            );
+                          } finally {
+                            setDialogState(() => isResetting = false);
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: isResetting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                        )
+                      : const Text('Send Reset Link', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -724,6 +860,21 @@ class _SetupBusinessScreenState extends State<SetupBusinessScreen> {
                                           _obscurePassword = !_obscurePassword;
                                         });
                                       },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: _showForgotPasswordDialog,
+                                    child: const Text(
+                                      'Forgot Password?',
+                                      style: TextStyle(
+                                        color: Color(0xFF0B664D),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
                                 ),

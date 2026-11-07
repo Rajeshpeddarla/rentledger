@@ -17,6 +17,7 @@ import '../../data/models/lease_item_model.dart';
 import '../../data/models/lease_model.dart';
 import '../../data/models/leased_sub_item_model.dart';
 import '../../data/models/store_model.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../data/repositories/inventory_unit_repository.dart';
 import '../../services/notification_service.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
@@ -95,6 +96,7 @@ class CreateLeaseScreen extends StatefulWidget {
 
 class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   final List<LeaseItemQuantity> _selectedLeaseItems = [];
+  PackageLimitsModel _limits = const PackageLimitsModel();
 
   DateTime _startTime = DateTime.now();
   DateTime _expectedEndTime = DateTime.now().add(const Duration(days: 1));
@@ -111,7 +113,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   final TextEditingController _advanceRentController = TextEditingController(text: '0');
   final TextEditingController _discountController = TextEditingController(text: '0');
 
-  // Condition Photos (2-3 photos)
+  // Condition Photos
   final List<File> _beforePhotos = [];
   bool _isSaving = false;
   bool _hasConflict = false;
@@ -147,6 +149,7 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   @override
   void initState() {
     super.initState();
+    _loadLimits();
     if (widget.preSelectedItem != null) {
       final line = LeaseItemQuantity(item: widget.preSelectedItem!, pieces: 1);
       _selectedLeaseItems.add(line);
@@ -154,7 +157,15 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
     }
     _depositPaidController.text = totalExpectedDeposit.toStringAsFixed(0);
     _validateConflict();
-    _retrieveLostData();
+  }
+
+  Future<void> _loadLimits() async {
+    final limits = await AdminRepository().getPackageLimits();
+    if (mounted) {
+      setState(() {
+        _limits = limits;
+      });
+    }
   }
 
   bool _isUnitAvailableForDates(InventoryUnitModel u, String itemId) {
@@ -431,10 +442,12 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
   Future<void> _pickPhoto() async {
     FocusManager.instance.primaryFocus?.unfocus();
 
-    if (_beforePhotos.length >= 3) {
+    final maxPhotos = widget.isPro ? _limits.proPhotosLimit : _limits.freePhotosLimit;
+
+    if (_beforePhotos.length >= maxPhotos) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Maximum 3 condition proof photos.'),
+        SnackBar(
+          content: Text('Maximum $maxPhotos condition proof photos allowed on your current plan.'),
           backgroundColor: AppColors.errorRed,
         ),
       );
@@ -575,6 +588,21 @@ class _CreateLeaseScreenState extends State<CreateLeaseScreen> {
       final storeState = context.read<StoreCubit>().state;
       final store = storeState is StoreLoaded ? storeState.store : null;
       if (store == null) throw Exception('Store not initialized');
+
+      if (!widget.isPro) {
+        final leaseState = context.read<LeaseCubit>().state;
+        final allLeases = leaseState is LeaseLoaded ? leaseState.allLeases : <LeaseModel>[];
+        final now = DateTime.now();
+
+        final thisMonthLeasesCount = allLeases.where((l) {
+          return l.startTime.year == now.year && l.startTime.month == now.month && l.status != 'cancelled';
+        }).length;
+
+        if (thisMonthLeasesCount >= _limits.freeMonthlyLeasesLimit) {
+          _showUpgradePaywallDialog();
+          return;
+        }
+      }
 
       // 1. Resolve or create customer with clean trimmed name and phone
       CustomerModel customer;

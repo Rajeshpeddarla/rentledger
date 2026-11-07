@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/config/app_theme.dart';
 import '../../data/models/store_model.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/theme/theme_cubit.dart';
+import '../admin/admin_panel_screen.dart';
 import '../onboarding/setup_business_screen.dart';
+import '../support/support_ticket_list_screen.dart';
 import 'category_list_screen.dart';
 import 'customer_directory_screen.dart';
 import 'discount_list_screen.dart';
@@ -23,6 +27,25 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final AdminRepository _adminRepo = AdminRepository();
+  bool _enableCoupons = false;
+  bool _enableLoyalty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSystemFlags();
+  }
+
+  Future<void> _loadSystemFlags() async {
+    final flags = await _adminRepo.getSystemFeatureFlags();
+    if (mounted) {
+      setState(() {
+        _enableCoupons = flags['enable_coupons'] ?? false;
+        _enableLoyalty = flags['enable_loyalty'] ?? false;
+      });
+    }
+  }
   void _navigateToEditStoreProfile(BuildContext context, StoreModel store) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -76,15 +99,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () async {
-                final storeCubit = context.read<StoreCubit>();
+              onPressed: () {
                 Navigator.pop(dCtx);
-                await storeCubit.signOut();
-                if (!context.mounted) return;
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const SetupBusinessScreen()),
-                  (route) => false,
-                );
+                _showPermanentDeletionConfirmationDialog(context, store);
               },
               child: const Text(
                 'Sign Out Anyway',
@@ -149,6 +166,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  void _showPermanentDeletionConfirmationDialog(BuildContext context, StoreModel? store) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever_outlined, color: AppColors.errorRed, size: 26),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Final Warning: Delete All Data',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.errorRed),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you absolutely sure you want to sign out of ${store?.businessName ?? "this guest account"}?',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.errorRed, width: 1),
+              ),
+              child: const Text(
+                '⚠️ All inventory items, leases, receipts, and customer records will be PERMANENTLY DELETED from our servers immediately and cannot be recovered.',
+                style: TextStyle(fontSize: 11.5, color: AppColors.errorRed, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dCtx),
+            child: const Text('Cancel / Keep Data', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              final storeCubit = context.read<StoreCubit>();
+              Navigator.pop(dCtx);
+              await storeCubit.deleteGuestAccountAndSignOut();
+              if (!context.mounted) return;
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const SetupBusinessScreen()),
+                (route) => false,
+              );
+            },
+            icon: const Icon(Icons.delete_forever, size: 16),
+            label: const Text('Delete All Data & Sign Out', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.errorRed,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -170,9 +259,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
           final isPro = store.isPro;
           final completion = store.profileCompletionPercentage;
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
+          return RefreshIndicator(
+            onRefresh: () async {
+              await context.read<StoreCubit>().initSession();
+              await _loadSystemFlags();
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 1. Top Store Name & Completion Percentage Card
@@ -444,31 +539,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                _buildSettingsTile(
-                  icon: Icons.discount_outlined,
-                  title: 'Promotional Discounts & Vouchers',
-                  subtitle: 'Configure percentage or flat rate discount coupons for categories or equipment',
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const DiscountListScreen()),
-                    );
-                  },
-                  isDark: isDark,
-                ),
-                const SizedBox(height: 10),
+                if (_enableCoupons) ...[
+                  _buildSettingsTile(
+                    icon: Icons.discount_outlined,
+                    title: 'Promotional Discounts & Vouchers',
+                    subtitle: 'Configure percentage or flat rate discount coupons for categories or equipment',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const DiscountListScreen()),
+                      );
+                    },
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 10),
+                ],
 
-                _buildSettingsTile(
-                  icon: Icons.stars_outlined,
-                  title: 'Customer Loyalty Program & Rewards',
-                  subtitle: 'Set earning rates, points redemption value, and 30-day locked expiry periods',
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const LoyaltyScreen()),
-                    );
-                  },
-                  isDark: isDark,
-                ),
-                const SizedBox(height: 10),
+                if (_enableLoyalty) ...[
+                  _buildSettingsTile(
+                    icon: Icons.stars_outlined,
+                    title: 'Customer Loyalty Program & Rewards',
+                    subtitle: 'Set earning rates, points redemption value, and 30-day locked expiry periods',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const LoyaltyScreen()),
+                      );
+                    },
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 10),
+                ],
 
                 _buildSettingsTile(
                   icon: Icons.bar_chart_outlined,
@@ -496,6 +595,99 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     );
                   },
                   isDark: isDark,
+                ),
+                const SizedBox(height: 10),
+
+                _buildSettingsTile(
+                  icon: Icons.support_agent_outlined,
+                  title: 'Support & Help Center',
+                  subtitle: 'Submit support tickets with screenshots and track issue status',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SupportTicketListScreen()),
+                    );
+                  },
+                  isDark: isDark,
+                ),
+
+                const SizedBox(height: 16),
+
+                Builder(
+                  builder: (ctx) {
+                    final currentUserEmail = Supabase.instance.client.auth.currentUser?.email?.toLowerCase();
+                    final isSuperAdmin = (currentUserEmail == 'varunsai428@gmail.com') ||
+                        (store.email?.toLowerCase() == 'varunsai428@gmail.com') ||
+                        (store.ownerEmail?.toLowerCase() == 'varunsai428@gmail.com');
+
+                    if (!isSuperAdmin) return const SizedBox.shrink();
+
+                    return Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: isDark
+                                  ? [const Color(0xFF1E3A8A), const Color(0xFF0F172A)]
+                                  : [const Color(0xFFEFF6FF), const Color(0xFFDBEAFE)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFF3B82F6), width: 1.5),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.admin_panel_settings, color: Color(0xFF2563EB), size: 22),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Super Admin Control Panel',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1E40AF),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'System metrics, store management, coupon/loyalty viewer & support ticket resolution center.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1E3A8A),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2563EB),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  icon: const Icon(Icons.dashboard_outlined, size: 18),
+                                  label: const Text('Open Admin Panel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                  onPressed: () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => const AdminPanelScreen()),
+                                    );
+                                    _loadSystemFlags();
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 20),
@@ -544,15 +736,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 32),
               ],
             ),
-          );
-        },
-      ),
-    );
-  }
+          ),
+        );
+      },
+    ),
+  );
+}
 
   Widget _buildStepCheck(String label, bool isDone) {
     return Column(

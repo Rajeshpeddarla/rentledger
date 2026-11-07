@@ -3,12 +3,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../core/config/app_theme.dart';
+import '../../core/services/pdf_receipt_service.dart';
 import '../../data/models/lease_model.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/lease/lease_cubit.dart';
 import '../../viewmodels/lease/lease_state.dart';
-import '../../core/services/pdf_receipt_service.dart';
+import '../profile/subscription_paywall_screen.dart';
 import 'create_lease_screen.dart';
 import 'take_back_settlement_screen.dart';
 
@@ -23,6 +25,112 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
   CalendarFormat _calendarFormat = CalendarFormat.twoWeeks;
+  PackageLimitsModel _limits = const PackageLimitsModel();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLimits();
+  }
+
+  Future<void> _loadLimits() async {
+    final limits = await AdminRepository().getPackageLimits();
+    if (mounted) {
+      setState(() {
+        _limits = limits;
+      });
+    }
+  }
+
+  Widget _buildMonthlyLeasesLimitBar(int currentMonthlyCount, int maxLimit, bool isDark) {
+    final double pct = (currentMonthlyCount / maxLimit).clamp(0.0, 1.0);
+    final bool isNearLimit = currentMonthlyCount >= maxLimit;
+
+    final Color cardBg = isNearLimit
+        ? (isDark ? const Color(0xFF3B1515) : const Color(0xFFFFDAD6))
+        : (isDark ? const Color(0xFF142E24) : const Color(0xFFECFDF5));
+
+    final Color borderColor = isNearLimit
+        ? AppColors.errorRed
+        : (isDark ? AppColors.primaryLight : const Color(0xFFA7F3D0));
+
+    final Color textIconColor = isNearLimit
+        ? AppColors.errorRed
+        : (isDark ? AppColors.primaryLight : const Color(0xFF047857));
+
+    return Container(
+      margin: const EdgeInsets.only(left: 16, right: 16, bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(
+                      isNearLimit ? Icons.warning_amber_rounded : Icons.assignment_outlined,
+                      size: 16,
+                      color: textIconColor,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Free Monthly Leases: $currentMonthlyCount / $maxLimit',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: textIconColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SubscriptionPaywallScreen()),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isNearLimit ? AppColors.errorRed : AppColors.primary,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'Upgrade Pro',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 5,
+              backgroundColor: isDark ? Colors.black38 : const Color(0xFFD1FAE5),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isNearLimit ? AppColors.errorRed : AppColors.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   final List<String> _filters = ['all', 'active', 'upcoming', 'overdue', 'returned'];
 
@@ -174,8 +282,20 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
             return true;
           }).toList();
 
+          final now = DateTime.now();
+          final thisMonthLeasesCount = allLeases.where((l) {
+            return l.startTime.year == now.year && l.startTime.month == now.month && l.status != 'cancelled';
+          }).length;
+
           return Column(
             children: [
+              if (!isPro)
+                _buildMonthlyLeasesLimitBar(
+                  thisMonthLeasesCount,
+                  _limits.freeMonthlyLeasesLimit,
+                  isDark,
+                ),
+
               // 1. Interactive Table Calendar
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),

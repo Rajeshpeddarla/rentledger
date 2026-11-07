@@ -11,12 +11,14 @@ import '../../data/models/inventory_component_unit_model.dart';
 import '../../data/models/inventory_item_model.dart';
 import '../../data/models/inventory_unit_model.dart';
 import '../../data/models/sub_item_definition_model.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../data/repositories/inventory_unit_repository.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../../viewmodels/category/category_cubit.dart';
 import '../../viewmodels/category/category_state.dart';
 import '../../viewmodels/inventory/inventory_cubit.dart';
+import '../../viewmodels/inventory/inventory_state.dart';
 import '../profile/category_list_screen.dart';
 import '../profile/edit_store_profile_screen.dart';
 import '../profile/subscription_paywall_screen.dart';
@@ -347,6 +349,54 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
 
   void _proceedToStep2() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (widget.initialItem == null) {
+      final storeState = context.read<StoreCubit>().state;
+      final store = storeState is StoreLoaded ? storeState.store : null;
+      final isPro = store?.isPro ?? false;
+
+      if (!isPro) {
+        final limits = await AdminRepository().getPackageLimits();
+        final inventoryState = context.read<InventoryCubit>().state;
+        final currentCount = inventoryState is InventoryLoaded ? inventoryState.allItems.length : 0;
+
+        if (currentCount >= limits.freeItemsLimit) {
+          if (!mounted) return;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: Theme.of(context).brightness == Brightness.dark ? AppColors.darkCard : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.workspace_premium, color: AppColors.primary),
+                  SizedBox(width: 8),
+                  Text('Free Items Quota Reached', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Text(
+                'Your Free plan is limited to ${limits.freeItemsLimit} active equipment items. Upgrade to RentLedger Pro for unlimited equipment fleet!',
+                style: const TextStyle(fontSize: 12.5),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SubscriptionPaywallScreen()),
+                    );
+                  },
+                  child: const Text('Upgrade to Pro', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+      }
+    }
 
     if (_componentDefInputs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

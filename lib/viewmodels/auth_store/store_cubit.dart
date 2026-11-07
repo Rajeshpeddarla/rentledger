@@ -149,4 +149,18 @@ class StoreCubit extends Cubit<StoreState> {
     }
     emit(StoreInitial());
   }
+
+  /// Permanently delete guest account & data and sign out
+  Future<void> deleteGuestAccountAndSignOut() async {
+    emit(StoreLoading());
+    try {
+      await _storeRepository.deleteGuestStoreAndAccount();
+    } catch (e) {
+      debugPrint('StoreCubit.deleteGuestAccountAndSignOut warning: $e');
+      try {
+        await _supabaseService.signOut();
+      } catch (_) {}
+    }
+    emit(StoreInitial());
+  }
 }

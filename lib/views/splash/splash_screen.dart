@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../app.dart';
 import '../../core/config/app_theme.dart';
 import '../../viewmodels/auth_store/store_cubit.dart';
 import '../../viewmodels/auth_store/store_state.dart';
 import '../main_scaffold/main_bottom_nav_screen.dart';
+import '../onboarding/reset_password_screen.dart';
 import '../onboarding/setup_business_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -24,6 +26,15 @@ class _SplashScreenState extends State<SplashScreen> {
     // 1-second branding display
     await Future.delayed(const Duration(milliseconds: 1000));
     if (!mounted) return;
+
+    if (RentLedgerApp.isPasswordRecoveryFlow) {
+      RentLedgerApp.isPasswordRecoveryFlow = false;
+      debugPrint('--> [SPLASH] Navigating to ResetPasswordScreen for recovery flow');
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
+      );
+      return;
+    }
 
     final storeCubit = context.read<StoreCubit>();
     await storeCubit.initSession();

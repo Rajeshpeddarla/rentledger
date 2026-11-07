@@ -98,4 +98,25 @@ class StoreRepository {
       }
     }
   }
+
+  /// Permanently delete guest store data and sign out
+  Future<void> deleteGuestStoreAndAccount() async {
+    final user = _client.auth.currentUser;
+    if (user != null) {
+      try {
+        // Delete store profile & cascading data (leases, items, units, customers)
+        await _client.from('stores').delete().eq('id', user.id);
+        _cachedStore = null;
+        debugPrint('--> [DELETE GUEST STORE] Store profile $user.id deleted from DB');
+      } catch (e) {
+        debugPrint('StoreRepository.deleteGuestStoreAndAccount DB error: $e');
+      }
+
+      try {
+        await _client.auth.signOut();
+      } catch (aErr) {
+        debugPrint('StoreRepository.deleteGuestStoreAndAccount auth signOut note: $aErr');
+      }
+    }
+  }
 }

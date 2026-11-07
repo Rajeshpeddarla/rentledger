@@ -166,6 +166,12 @@ class InventoryItemModel extends Equatable {
   Map<String, dynamic> toDatabaseJson() {
     final map = Map<String, dynamic>.from(toJson());
     map.remove('active_leases_count');
+    map.remove('awaiting_inspection_count');
+    map.remove('maintenance_count');
+    map.remove('in_maintenance_count');
+    map.remove('reserved_count');
+    map.remove('lost_count');
+    map.remove('needed_restock_count');
     return map;
   }
 
