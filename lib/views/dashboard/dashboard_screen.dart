@@ -22,6 +22,7 @@ import '../lease/cancel_reservation_screen.dart';
 import '../lease/create_lease_screen.dart';
 import '../lease/future_reservations_screen.dart';
 import '../lease/take_back_settlement_screen.dart';
+import '../profile/secure_account_sheet.dart';
 import '../../services/notification_service.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -109,6 +110,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 0. Account Safeguard & Profile Completion Banner
+              _buildProfileSafeguardCard(context, isDark),
+
               // 1. Store Status Banner
               _buildLiveStatusBanner(context, isDark),
               const SizedBox(height: 14),
@@ -253,6 +257,156 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(width: 8),
           ],
+        );
+      },
+    );
+  }
+
+  Widget _buildProfileSafeguardCard(BuildContext context, bool isDark) {
+    return BlocBuilder<StoreCubit, StoreState>(
+      builder: (context, state) {
+        if (state is! StoreLoaded) return const SizedBox.shrink();
+
+        final store = state.store;
+        final completionPct = store.profileCompletionPercentage;
+        final isSecured = store.isAccountSecured;
+
+        if (completionPct >= 100 && isSecured) {
+          return const SizedBox.shrink();
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isDark
+                  ? [const Color(0xFF2C1C04), const Color(0xFF1E1E1E)]
+                  : [const Color(0xFFFFFBEB), const Color(0xFFFEF3C7)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? const Color(0xFF78350F) : const Color(0xFFFDE68A),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF78350F) : const Color(0xFFF59E0B),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.shield_outlined,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isSecured ? 'Complete Store Profile' : 'Safeguard Your Account',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF78350F) : const Color(0xFFFDE68A),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$completionPct% Completed',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: completionPct / 100.0,
+                  minHeight: 6,
+                  backgroundColor: isDark ? const Color(0xFF451A03) : const Color(0xFFFDE68A),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    isDark ? AppColors.primaryLight : const Color(0xFFD97706),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      !isSecured
+                          ? 'Guest account: Link email & password to safeguard data before signing out.'
+                          : 'Add payment QR & business info to generate complete PDF receipts.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? const Color(0xFFFCD34D) : const Color(0xFFB45309),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        ),
+                        builder: (_) => const SecureAccountSheet(),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? AppColors.primary : const Color(0xFFD97706),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: Text(
+                      !isSecured ? 'Secure Now' : 'Complete',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         );
       },
     );

@@ -32,34 +32,121 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _handleSignOut(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (dCtx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Sign Out', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to sign out from your store account?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dCtx),
-            child: const Text('Cancel'),
+    final storeState = context.read<StoreCubit>().state;
+    final store = storeState is StoreLoaded ? storeState.store : null;
+    final bool isSecured = store?.isAccountSecured ?? true;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (!isSecured) {
+      // Unsecured Guest Account Sign-Out Warning
+      showDialog(
+        context: context,
+        builder: (dCtx) => AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.errorRed, size: 24),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Unsecured Guest Account',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () async {
-              final storeCubit = context.read<StoreCubit>();
-              Navigator.pop(dCtx);
-              await storeCubit.signOut();
-              if (!context.mounted) return;
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const SetupBusinessScreen()),
-                (route) => false,
-              );
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            child: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'You have not linked an email & password to ${store?.businessName ?? "your store"}.',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'If you sign out now without safeguarding your account, you will lose access to this guest account and all your inventory/lease data.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? AppColors.darkOnSurfaceVariant : AppColors.secondary,
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
+          actions: [
+            TextButton(
+              onPressed: () async {
+                final storeCubit = context.read<StoreCubit>();
+                Navigator.pop(dCtx);
+                await storeCubit.signOut();
+                if (!context.mounted) return;
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const SetupBusinessScreen()),
+                  (route) => false,
+                );
+              },
+              child: const Text(
+                'Sign Out Anyway',
+                style: TextStyle(color: AppColors.errorRed, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(dCtx);
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  builder: (_) => const SecureAccountSheet(),
+                );
+              },
+              icon: const Icon(Icons.shield_outlined, size: 16),
+              label: const Text('Link Email & Save Data', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Standard Secured Account Sign-Out
+      showDialog(
+        context: context,
+        builder: (dCtx) => AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Sign Out', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: Text('Are you sure you want to sign out from ${store?.businessName ?? "your store"}?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final storeCubit = context.read<StoreCubit>();
+                Navigator.pop(dCtx);
+                await storeCubit.signOut();
+                if (!context.mounted) return;
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const SetupBusinessScreen()),
+                  (route) => false,
+                );
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
